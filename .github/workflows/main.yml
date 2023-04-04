@@ -1,0 +1,14 @@
+name: main
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: ocaml-variants.5.0.0+options,ocaml-option-flambda,ocaml-option-no-flat-float-array
+          dune-cache: true
+      - run: opam exec -- dune runtest

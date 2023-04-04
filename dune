@@ -1,0 +1,32 @@
+(executable
+ (name lowcaml)
+ (public_name lowcaml.exe)
+ (package lowcaml)
+ (modules lowcaml lowcaml_stdlib_cmi)
+ (flags :standard -warn-error -3-26-27-32-48-58-60 -bin-annot -color always)
+ (ocamlopt_flags :standard -O3)
+ (libraries compiler-libs compiler-libs.optcomp compiler-libs.common))
+
+(rule
+ (targets lowcaml_stdlib_cmi.ml)
+ (deps
+  (file lowcaml_stdlib.cmi))
+ (action
+  (run ./embed_file.exe lowcaml_stdlib.cmi lowcaml_stdlib_cmi.ml)))
+
+(executable
+ (name embed_file)
+ (modules embed_file))
+
+(rule
+ (targets lowcaml_stdlib.cmi)
+ (deps
+  (file lowcaml_stdlib.mli))
+ (action
+  (run ocamlc lowcaml_stdlib.mli)))
+
+(library
+ (name lowcaml_stdlib)
+ (public_name lowcaml.stdlib)
+ (modules lowcaml_stdlib)
+ (virtual_modules lowcaml_stdlib))

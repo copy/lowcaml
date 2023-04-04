@@ -1,0 +1,35 @@
+(test
+ (name test)
+ (modules test)
+ (libraries lstubs))
+
+(library
+ (name lstubs)
+ (modules lstubs)
+ (foreign_stubs
+  (language c)
+  (names cstubs)
+  (flags
+   :standard
+   -Wall
+   -Wpedantic
+   -Wconversion
+   -Wextra ; enable for extra unused variable warnings
+   -Werror
+   -Wno-error=unused-parameter
+   -Wno-error=unused-variable
+   -mavx2 ; XXX: Intel with AVX2 only
+   )))
+
+(rule
+ (targets lstubs.ml cstubs.c)
+ (deps test_lowcaml.ml)
+ (action
+  (run lowcaml.exe -o-ml lstubs.ml -o-c cstubs.c -source test_lowcaml.ml)))
+
+; for merlin
+(library
+ (name lowcaml_test_dummy)
+ (modules test_lowcaml)
+ (libraries lowcaml.stdlib)
+ (flags :standard -nopervasives -open Lowcaml_stdlib))
