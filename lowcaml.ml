@@ -1,5 +1,7 @@
+(* 0.1 release checklist
+   - fix hard-coded headers
+*)
 (* TODO
-   - ternary
    - top-level constants
    - match/switch
    - lift let-bindings in expressions
@@ -31,9 +33,9 @@
    - [@@@include "string.h"]
    - type foo [@c_name "foo"]
    - nicer cmdline interface
+   - lowcaml libraries (install mli+h?)
 
    - porting
-     - setenv/unsetenv: needs const char*
      - syscall
      - find_external_symbols
      - bigstringaf (or other) stubs
@@ -46,8 +48,10 @@ let failwithf fmt = Format.kasprintf failwith fmt
 exception Not_supported of string
 let not_supported fmt = Format.kasprintf (fun msg -> raise (Not_supported msg)) fmt
 
+let enable_simplify_pass = true
+
 module C_ast = struct
-  type identifier = I of string [@@unboxed]
+  type identifier = I of string [@unboxed]
 
   let create_identifer i =
     if i = "" || i.[0] <= '9' || not @@ String.for_all (function '0'..'9' | 'a'..'z' | 'A'..'Z' | '_' -> true | _ -> false) i then
@@ -55,11 +59,13 @@ module C_ast = struct
     I i
 
   type ty =
-    | I64 | I32 | U64 | U32 | U16 | U8 | Bool
+    | I64 | I32 | I16 | I8
+    | U64 | U32 | U16 | U8
+    | Bool | Char
     | Float | Double
     | M128i | M256i
     | Value
-    | VoidPtr | ConstVoidPtr
+    | Void_ptr | Const_void_ptr
     | Ptr of ty
     | Const of ty
 
@@ -71,6 +77,7 @@ module C_ast = struct
     | Call of identifier * expression list
     | Op1 of string * expression
     | Op2 of string * expression * expression
+    | Ternary of expression * expression * expression
     | Variable of identifier
     | Deref of expression
     | Addr_of of expression
@@ -116,21 +123,24 @@ module C_ast = struct
     let rec ty buf = function
       | I64 -> pr buf "int64_t"
       | I32 -> pr buf "int32_t"
+      | I16 -> pr buf "int16_t"
+      | I8 -> pr buf "int8_t"
       | U64 -> pr buf "uint64_t"
       | U32 -> pr buf "uint32_t"
       | U16 -> pr buf "uint16_t"
       | U8 -> pr buf "uint8_t"
+      | Bool -> pr buf "bool"
+      | Char -> pr buf "char"
       | Float -> pr buf "float"
       | Double -> pr buf "double"
-      | Bool -> pr buf "bool"
-      | Value -> pr buf "value"
       | M128i -> pr buf "__m128i"
       | M256i -> pr buf "__m256i"
-      | VoidPtr -> pr buf "void*"
-      | ConstVoidPtr -> pr buf "const void*"
+      | Value -> pr buf "value"
+      | Void_ptr -> pr buf "void*"
+      | Const_void_ptr -> pr buf "const void*"
       | Ptr t -> ty buf t; pr buf "*"
-      | Const ConstVoidPtr -> pr buf "const void*const"
-      | Const VoidPtr -> pr buf "void*const"
+      | Const Const_void_ptr -> pr buf "const void*const"
+      | Const Void_ptr -> pr buf "void*const"
       | Const Ptr t -> ty buf t; pr buf "*const"
       | Const Const _ -> failwith "Bad C type: nested const"
       | Const t -> pr buf "const "; ty buf t
@@ -150,6 +160,10 @@ module C_ast = struct
       | Op1 (op, arg) -> pr buf "("; pr buf op; expression buf arg; pr buf ")"
       | Op2 (op, lhs, rhs) ->
          pr buf "("; expression buf lhs; pr buf op; expression buf rhs; pr buf ")"
+      | Ternary (cond, then_, else_) ->
+        pr buf "(("; expression buf cond; pr buf ") ? (";
+        expression buf then_; pr buf ") : (";
+        expression buf else_; pr buf "))";
       | Call (I f, args) -> pr buf f; pr buf "("; sep buf ", " expression args; pr buf ")"
       | Deref e -> pr buf "*"; expression buf e
       | Addr_of e -> pr buf "&"; expression buf e
@@ -251,6 +265,37 @@ module C_ast = struct
       pr buf "\n";
       Buffer.contents buf
   end
+
+  module Simplify = struct
+    let rec simplify_expression = function
+      | Deref (Addr_of x) -> x (* appears naturally due to Mut.t *)
+
+      | Call (i, args) -> Call (i, List.map simplify_expression args)
+      | Op1 (op, rhs) -> Op1 (op, simplify_expression rhs)
+      | Op2 (op, lhs, rhs) -> Op2 (op, simplify_expression lhs, simplify_expression rhs)
+      | Ternary (i, t, e) -> Ternary (simplify_expression i, simplify_expression t, simplify_expression e)
+      | Constant _ | Constant_bool _ | Constant_float _ | Constant_i64 _ as x -> x
+      | Variable _ as v -> v
+      | Deref e -> Deref (simplify_expression e)
+      | Addr_of e -> Addr_of (simplify_expression e)
+      | Cast (ty, e) -> Cast (ty, simplify_expression e)
+
+    let rec simplify_statement = function
+      | Declaration _ as d -> d
+      | Expression e -> Expression (simplify_expression e)
+      | For (d, cond, after, body) -> For (d, simplify_expression cond, simplify_expression after, simplify_body body)
+      | While (cond, body) -> While (simplify_expression cond, simplify_body body)
+      | If_then (cond, body) -> If_then (simplify_expression cond, simplify_body body)
+      | If_then_else (cond, then_, else_) -> If_then_else (simplify_expression cond, simplify_body then_, simplify_body else_)
+      | Return e -> Return (simplify_expression e)
+    and simplify_body s = List.map simplify_statement s
+
+    let simplify_element = function
+      | Function f -> Function { f with body = simplify_body f.body }
+      | Prototype _ as p -> p
+
+    let go t = { t with elements = List.map simplify_element t.elements }
+  end
 end
 
 module Names = struct
@@ -289,6 +334,11 @@ module Lowcaml = struct
   let print_expr fmt e = Pprintast.expression fmt (Untypeast.untype_expression e)
   let print_pat fmt p = Pprintast.pattern fmt (Untypeast.untype_pattern p)
 
+  let is_type_var ty =
+    match Types.get_desc ty with
+    | Types.Tvar _ -> true
+    | _ -> false
+
   let rec map_type_with_unit ~where env ty =
     let ty = Ctype.expand_head env ty in
     match Types.get_desc ty with
@@ -306,7 +356,7 @@ module Lowcaml = struct
        else if Path.same path Predef.path_bool then
          Bool
        else if Path.same path Predef.path_char then
-         U8
+         Char
        else if Path.same path Predef.path_bytes then
          Value
        else if Path.same path Predef.path_string then
@@ -316,15 +366,29 @@ module Lowcaml = struct
          | "Lowcaml_stdlib.F32.t" -> Float
          | "Lowcaml_stdlib.SIMD.__m128i" -> M128i
          | "Lowcaml_stdlib.SIMD.__m256i" -> M256i
-         | "Lowcaml_stdlib.Ptr.t" -> VoidPtr
-         | "Lowcaml_stdlib.Const_ptr.t" -> ConstVoidPtr
+         | "Lowcaml_stdlib.Void_ptr.t" -> Void_ptr
+         | "Lowcaml_stdlib.Const_void_ptr.t" -> Const_void_ptr
          | "Lowcaml_stdlib.Uint64_t.t" -> U64
+         | "Lowcaml_stdlib.Int16_t.t" -> I16
+         | "Lowcaml_stdlib.Int8_t.t" -> I8
          | "Stdlib__Bigarray.Array1.t" -> Value (* TODO: check 3rd type parameter is c_layout? *)
-         | "Lowcaml_stdlib.Mut.t" ->
+         | "Lowcaml_stdlib.Mut.t" | "Lowcaml_stdlib.Ptr.t" ->
            (match args with
+            | [x] when is_type_var x ->
+              Void_ptr
             | [x] ->
               (match map_type_with_unit ~where env x with
                | Some ty -> Ptr ty
+               | None -> not_supported "unit Mut.t")
+            | _ -> failwithf "Expected 1 type parameter for Mut.t, but got %d in %a" (List.length args) Printtyp.type_expr ty
+           )
+         | "Lowcaml_stdlib.Const_ptr.t" ->
+           (match args with
+            | [x] when is_type_var x ->
+              Const_void_ptr
+            | [x] ->
+              (match map_type_with_unit ~where env x with
+               | Some ty -> Ptr (Const ty)
                | None -> not_supported "unit Mut.t")
             | _ -> failwithf "Expected 1 type parameter for Mut.t, but got %d in %a" (List.length args) Printtyp.type_expr ty
            )
@@ -413,39 +477,37 @@ module Lowcaml = struct
     let args1 f = function [x] -> x | args -> bad_arity 1 f args in
     let args2 f = function [x; y] -> x, y | args -> bad_arity 2 f args in
     let args3 f = function [x; y; z] -> x, y, z | args -> bad_arity 3 f args in
+    let bytes_get size args =
+      let buf, offset = args2 name args in
+      (* NOTE: only ub-safe because all C code is compiled with -fno-strict-aliasing *)
+      (* Deref (Cast (Ptr size, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset))) *)
+      Deref (Cast (Ptr size, Addr_of (Call (create_identifer "Byte", [buf; offset]))))
+    in
+    let bytes_set size args =
+      let buf, offset, value = args3 name args in
+      (* Op2 ("=", Deref (Cast (Ptr size, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset))), value) *)
+      Op2 ("=", Deref (Cast (Ptr size, Addr_of (Call (create_identifer "Byte", [buf; offset])))), Cast (size, value))
+    in
     match name with
     | "lowcaml_bytes_length" ->
       let buf = args1 name args in
       Cast (I64, Call (create_identifer "caml_string_length", [buf]))
-    | "lowcaml_bytes_get_uint8" ->
-      (* NOTE: only ub-safe because all C code is compiled with -fno-strict-aliasing *)
-      (* *(uint8_t* )(Bytes_val(buf)+offset) *)
-      let buf, offset = args2 name args in
-      Deref (Cast (Ptr U8, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset)))
-    | "lowcaml_bytes_get_uint16" ->
-      (* *(uint16_t* )(Bytes_val(buf)+offset) *)
-      let buf, offset = args2 name args in
-      Deref (Cast (Ptr U16, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset)))
-    | "lowcaml_bytes_get_uint32" ->
-      (* *(uint32_t* )(Bytes_val(buf)+offset) *)
-      let buf, offset = args2 name args in
-      Deref (Cast (Ptr U32, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset)))
-    | "lowcaml_bytes_get_int32" ->
-      (* *(int32_t* )(Bytes_val(buf)+offset) *)
-      let buf, offset = args2 name args in
-      Deref (Cast (Ptr I32, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset)))
-    | "lowcaml_bytes_set_int8" ->
-      (* ( *(uint8_t* )(Bytes_val(buf)+offset) = value); *)
-      let buf, offset, value = args3 name args in
-      Op2 ("=", Deref (Cast (Ptr U8, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset))), value)
-    | "lowcaml_bytes_set_int16" ->
-      (* ( *(uint16_t* )(Bytes_val(buf)+offset) = (uint16_t)value); *)
-      let buf, offset, value = args3 name args in
-      Op2 ("=", Deref (Cast (Ptr U16, Op2 ("+", Call (create_identifer "Bytes_val", [buf]), offset))), Cast (U16, value))
+    | "lowcaml_bytes_get_uint8" -> bytes_get U8 args
+    | "lowcaml_bytes_get_uint16" -> bytes_get U16 args
+    | "lowcaml_bytes_get_uint32" -> bytes_get U32 args
+    | "lowcaml_bytes_get_int32" -> bytes_get I32 args
+    | "lowcaml_bytes_set_int8" -> bytes_set U8 args
+    | "lowcaml_bytes_set_int16" -> bytes_set U16 args
     | "lowcaml_ptr_offset" ->
-      (* (void* )((uint8_t* )buf+offset) *)
+      (* (void* )((uint8_t* )ptr+offset) *)
       let ptr, offset = args2 name args in
-      Cast (VoidPtr, Op2 ("+", Cast (Ptr U8, ptr), offset))
+      Cast (Void_ptr, Op2 ("+", Cast (Ptr U8, ptr), offset))
+(*
+    | "lowcaml_ptr_offset" ->
+      (* (ptr+offset) *)
+      let ptr, offset = args2 name args in
+      Op2 ("+", ptr, offset)
+*)
     | "lowcaml_ptr_to_int" ->
       let ptr = args1 name args in
       Cast (I64, ptr)
@@ -454,15 +516,15 @@ module Lowcaml = struct
       Op2 ("=", Deref (Cast (Ptr I64, ptr)), value)
     | "lowcaml_bigarray_to_ptr" ->
       let bigarray = args1 name args in
-      Cast (VoidPtr, Call (create_identifer "Caml_ba_data_val", [bigarray]))
+      Cast (Void_ptr, Call (create_identifer "Caml_ba_data_val", [bigarray]))
     | "lowcaml_bytes_to_ptr" ->
       let bytes = args1 name args in
-      Cast (VoidPtr, Call (create_identifer "Bytes_val", [bytes]))
+      Cast (Void_ptr, Call (create_identifer "Bytes_val", [bytes]))
     | "lowcaml_string_to_constptr" ->
       let bytes = args1 name args in
-      Cast (ConstVoidPtr, Call (create_identifer "String_val", [bytes]))
+      Cast (Const_void_ptr, Call (create_identifer "String_val", [bytes]))
     | "lowcaml_ptr_to_const_ptr" ->
-      Cast (ConstVoidPtr, args1 name args)
+      Cast (Const_void_ptr, args1 name args)
     | "lowcaml_int32_to_int" ->
       Cast (I64, args1 name args)
     | "lowcaml_int32_of_int" ->
@@ -509,10 +571,14 @@ module Lowcaml = struct
   let rec generate_simple_expression names expr =
     match expr.exp_desc with
     | Texp_apply ({ exp_desc = Texp_ident (path, _, { val_kind = Val_prim prim; _ }); _ }, args) ->
-      let args = List.map (function
-          | Asttypes.Nolabel, Some arg -> generate_simple_expression names arg
-          | _ -> not_supported "labelled argument: %a" print_expr expr
-        ) args
+      let args =
+        match args with
+        | [Asttypes.Nolabel, Some t] when is_unit t.exp_type -> []
+        | args ->
+          List.map (function
+              | Asttypes.Nolabel, Some arg -> generate_simple_expression names arg
+              | _ -> not_supported "labelled argument: %a" print_expr expr
+            ) args
       in
       let name = prim.prim_name in
       generate_primitive name args
@@ -532,6 +598,13 @@ module Lowcaml = struct
       (match constness with
       | `Mut -> Addr_of (Variable name)
       | `Const -> Variable name)
+    | Texp_ifthenelse (cond, then_, Some else_) ->
+      Ternary (
+        generate_simple_expression names cond,
+        generate_simple_expression names then_,
+        generate_simple_expression names else_)
+    | Texp_ifthenelse (cond, then_, None) ->
+      not_supported "if-then is currently not allowed in expression: %a" print_expr expr
     | Texp_open (_, expr) ->
       generate_simple_expression names expr
     | Texp_ident (path, ident, _) ->
@@ -696,10 +769,14 @@ module Lowcaml = struct
           if args = [] then failwith "TODO: Constant";
           Prototype {
             name = create_identifer func_name;
-            args = List.map (fun ty ->
-                (* Option.value ~default:Value (map_type_with_unit ~where:item.str_env item.str_env ty) *)
-                map_type ~where:func_name item.str_env ty
-              ) args;
+            args =
+              (match args with
+               | [t] when is_unit t -> []
+               | _ ->
+                 List.map (fun ty ->
+                     (* Option.value ~default:Value (map_type_with_unit ~where:item.str_env item.str_env ty) *)
+                     map_type ~where:func_name item.str_env ty
+                   ) args);
             return_type = map_type_with_unit ~where:func_name item.str_env return_type;
           },
           None
@@ -792,6 +869,7 @@ let () =
         elements;
       }
     in
+    let result = if enable_simplify_pass then C_ast.Simplify.go result else result in
     let out = "// generated by lowcaml\n" ^ C_ast.Print.print result in
     print_endline out;
     Out_channel.with_open_bin !c_file (fun c -> output_string c out);

@@ -111,40 +111,93 @@ end
 external (:=) : 'a Mut.t -> 'a -> unit = "lowcaml_mut_set"
 external (!) : 'a Mut.t -> 'a = "lowcaml_deref"
 
-module Const_ptr : sig
+(** The following pointer types are primarily for consumption of C libraries.
+    Use with caution. *)
+
+module Const_void_ptr : sig
   type t
   (** The [const void*] type *)
+
+  external is_null : t -> bool = "%boolnot"
 
   external string : string -> t = "lowcaml_string_to_constptr"
   external bytes : bytes -> t = "lowcaml_string_to_constptr"
   external bigarray : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> t = "lowcaml_bigarray_to_ptr"
 
   external to_int : t -> int = "lowcaml_ptr_to_int"
-  external is_null : t -> bool = "%boolnot"
 
   external offset : t -> int -> t = "lowcaml_ptr_offset"
+  (** Note: The offset is in bytes *)
 
   external of_mut : 'a Mut.t -> t = "%identity"
+  (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
 end
 
-module Ptr : sig
+module Void_ptr : sig
   type t
   (** The [void*] type *)
+
+  external is_null : t -> bool = "%boolnot"
 
   external bytes : bytes -> t = "lowcaml_bytes_to_ptr"
   external bigarray : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> t = "lowcaml_bigarray_to_ptr"
 
   external to_int : t -> int = "lowcaml_ptr_to_int"
-  external to_const : t -> Const_ptr.t = "lowcaml_ptr_to_const_ptr"
-  external is_null : t -> bool = "%boolnot"
+  external to_const : t -> Const_void_ptr.t = "lowcaml_ptr_to_const_ptr"
 
   external offset : t -> int -> t = "lowcaml_ptr_offset"
-
-  (* external write64 : t -> int -> unit = "lowcaml_ptr_write64" *)
+  (** Note: The offset is in bytes *)
 
   external of_mut : 'a Mut.t -> t = "%identity"
+  (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
 end
 
+module Ptr : sig
+  type 'a t
+  (* pointer to ['a] *)
+
+  external is_null : 'a t -> bool = "%boolnot"
+
+  external bytes : bytes -> 'a t = "lowcaml_bytes_to_ptr"
+  external bigarray : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> 'a t = "lowcaml_bigarray_to_ptr"
+
+  external to_int : 'a t -> int = "lowcaml_ptr_to_int"
+
+  external offset : 'a t -> int -> 'a t = "lowcaml_ptr_offset"
+  (** Note: The offset is in bytes *)
+
+  external of_void_ptr : Void_ptr.t -> 'a t = "%identity"
+  external of_mut : 'a Mut.t -> 'a t = "%identity"
+  (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
+end
+
+module Const_ptr : sig
+  type 'a t
+  (* pointer to [const 'a] *)
+
+  external is_null : 'a t -> bool = "%boolnot"
+
+  external string : string -> 'a t = "lowcaml_string_to_constptr"
+  external bytes : bytes -> 'a t = "lowcaml_string_to_constptr"
+  external bigarray : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> 'a t = "lowcaml_bigarray_to_ptr"
+
+  external to_int : 'a t -> int = "lowcaml_ptr_to_int"
+
+  external offset : 'a t -> int -> 'a t = "lowcaml_ptr_offset"
+  (** Note: The offset is in bytes *)
+
+  external of_void_ptr : Void_ptr.t -> 'a t = "%identity"
+  external of_const_void_ptr : Const_void_ptr.t -> 'a t = "%identity"
+  external of_mut : 'a Mut.t -> 'a t = "%identity"
+  (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
+end
+
+module Int8_t : sig
+  type t
+  (** The [int8_t] type *)
+
+  external of_int : int -> t = "lowcaml_int_to_int8_t"
+end
 module Uint8_t : sig
   type t
   (** The [uint8_t] type *)
@@ -169,8 +222,8 @@ module SIMD : sig
   external _mm_and_si128 : __m128i -> __m128i -> __m128i = "_mm_and_si128"
   external _mm_cmpeq_epi32 : __m128i -> __m128i -> __m128i = "_mm_cmpeq_epi32"
   external _mm_blendv_epi8 : __m128i -> __m128i -> __m128i -> __m128i = "_mm_blendv_epi8"
-  external _mm_storeu_si64 : Ptr.t -> __m128i -> unit = "_mm_storeu_si64"
-  external _mm_storeu_si128 : Ptr.t -> __m128i -> unit = "_mm_storeu_si128"
+  external _mm_storeu_si64 : Void_ptr.t -> __m128i -> unit = "_mm_storeu_si64"
+  external _mm_storeu_si128 : __m128i Ptr.t -> __m128i -> unit = "_mm_storeu_si128"
 
   type __m256i
   external _mm256_set1_epi32 : int32 -> __m256i = "_mm256_set1_epi32"
@@ -178,9 +231,9 @@ module SIMD : sig
   external _mm256_cmpeq_epi32 : __m256i -> __m256i -> __m256i = "_mm256_cmpeq_epi32"
   external _mm256_and_si256 : __m256i -> __m256i -> __m256i = "_mm256_and_si256"
   external _mm256_blendv_epi8 : __m256i -> __m256i -> __m256i -> __m256i = "_mm256_blendv_epi8"
-  external _mm256_storeu_si256 : Ptr.t -> __m256i -> unit = "_mm256_storeu_si256"
-  external _mm256_store_si256 : Ptr.t -> __m256i -> unit = "_mm256_store_si256"
-  external _mm256_stream_si256 : Ptr.t -> __m256i -> unit = "_mm256_stream_si256"
+  external _mm256_storeu_si256 : __m256i Ptr.t -> __m256i -> unit = "_mm256_storeu_si256"
+  external _mm256_store_si256 : __m256i Ptr.t -> __m256i -> unit = "_mm256_store_si256"
+  external _mm256_stream_si256 : __m256i Ptr.t -> __m256i -> unit = "_mm256_stream_si256"
 
   external _mm256_extract_epi64 :  __m256i -> int32 -> int = "_mm256_extract_epi64"
   external _mm256_extracti128_si256 :  __m256i -> int32 -> __m128i = "_mm256_extracti128_si256"

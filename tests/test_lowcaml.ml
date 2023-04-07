@@ -1,6 +1,7 @@
 let inc x = x + 1
 let inc_int64 x = Int64.(x + 1L)
-let test_bytes b o = Bytes.set_int16_le b o 42
+let test_bytes1 b o = Bytes.set_int16_le b o 42
+let test_bytes2 b x = Bytes.set_uint8 b 0 x
 
 let test_if x b = if 0 <> x then Bytes.set_int16_le b 0 42
 let test_if_else1 x b = if 0 <> x then Bytes.set_int16_le b 0 42 else Bytes.set_int16_le b 0 43
@@ -16,6 +17,8 @@ let test_if_else3 x b =
     Bytes.set_int16_le b 0 44
   else
     Bytes.set_int16_le b 0 45
+let test_if_else4 x y =
+  3 + if x = 0 then y else x
 
 let test_open () =
   let open Int64 in
@@ -115,15 +118,20 @@ let test_sieve b =
     )
   done
 
-external libc_memcpy : Ptr.t -> Const_ptr.t -> Uint64_t.t -> Ptr.t = "memcpy"
-external libc_memset : Ptr.t -> int32 -> Uint64_t.t -> Ptr.t = "memset"
-external libc_memchr : Const_ptr.t -> int32 -> Uint64_t.t -> Ptr.t  = "memchr"
-external libc_memrchr : Const_ptr.t -> int32 -> Uint64_t.t -> Ptr.t  = "memrchr"
+external libc_memcpy : Void_ptr.t -> Const_void_ptr.t -> Uint64_t.t -> Void_ptr.t = "memcpy"
+external libc_memset : Void_ptr.t -> int32 -> Uint64_t.t -> Void_ptr.t = "memset"
+external libc_memchr : Const_void_ptr.t -> int32 -> Uint64_t.t -> Void_ptr.t  = "memchr"
+external libc_memrchr : Const_void_ptr.t -> int32 -> Uint64_t.t -> Void_ptr.t  = "memrchr"
+external libc_memcmp : Const_void_ptr.t -> Const_void_ptr.t -> Uint64_t.t -> int32  = "memcmp"
 
 let test_external b =
-  let p = Ptr.bytes b in
-  let _ = libc_memcpy p (Ptr.to_const (Ptr.offset p 1)) (Uint64_t.of_int 1) in
+  let p = Void_ptr.bytes b in
+  let _ = libc_memcpy p (Void_ptr.to_const (Void_ptr.offset p 1)) (Uint64_t.of_int 1) in
   ()
+
+external libc_getpid : unit -> int32 = "getpid"
+let test_external_void () =
+  libc_getpid ()
 
 let test_simd_fill b x =
   let i = Mut.int 0 in
@@ -149,5 +157,21 @@ let test_mut1 x =
     y := !x + 1;
   done;
   !x
+
+let test_something2 x b =
+  let x = Mut.int x in
+  let y = x in
+  let z = Ptr.of_mut y in
+  let w = Ptr.offset z 42 in
+  let p = Ptr.bytes b in
+  let cp = Const_ptr.bytes b in
+  let vp = Void_ptr.bytes b in
+  let cvp = Const_void_ptr.bytes b in
+  let p2 = Ptr.of_void_ptr vp in
+  let p3 = Ptr.of_mut x in
+  let cp2 = Const_ptr.of_void_ptr vp in
+  let cp3 = Const_ptr.of_const_void_ptr cvp in
+  let i1 = Ptr.to_int p in
+  ()
 
 (* let test_mut2 () = let x = Mut.int 0 in x *) (* Must not be able to return a Mut.t *)

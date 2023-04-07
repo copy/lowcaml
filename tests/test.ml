@@ -5,7 +5,7 @@ let () =
   assert (Lstubs.inc_int64 42L = 43L);
 
   let b = Bytes.make 2 '\x00' in
-  Lstubs.test_bytes b 0; assert (Bytes.get_uint16_le b 0 = 42);
+  Lstubs.test_bytes1 b 0; assert (Bytes.get_uint16_le b 0 = 42);
   let b = Bytes.make 2 '\x00' in
   Lstubs.test_if 0 b; assert (Bytes.get_uint16_le b 0 = 0);
   let b = Bytes.make 2 '\x00' in
@@ -29,6 +29,9 @@ let () =
   Lstubs.test_if_else3 1 b; assert (Bytes.get_uint16_le b 0 = 44);
   let b = Bytes.make 2 '\x00' in
   Lstubs.test_if_else3 42 b; assert (Bytes.get_uint16_le b 0 = 45);
+
+  assert (4 = Lstubs.test_if_else4 0 1);
+  assert (6 = Lstubs.test_if_else4 3 1);
 
   assert (Lstubs.test_call 1 2 3 = 34);
   (* Lstubs.test_unit () () (); *)
