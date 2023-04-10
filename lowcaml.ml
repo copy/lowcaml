@@ -1,5 +1,5 @@
 (* 0.1 release checklist
-   - fix hard-coded headers
+   -
 *)
 (* TODO
    - top-level constants
@@ -20,20 +20,18 @@
      - un-nest if-else chains
      - preserve comments
      - preserve number literals
-   - output mli
    - bounds checks
-   - run on lowcaml_stdlib
    - check whether int fits into OCaml int before returning it (likely requires stubs)
    - complete stdlib
    - use fsanitize=undefined
    - generate (void)x to handle unused warning (enable -Wextra)
    - sub-modules
-   - "export"
+   - "export"/static
    - let (bar[@c_name "foo"]) x y =
-   - [@@@include "string.h"]
    - type foo [@c_name "foo"]
    - nicer cmdline interface
    - lowcaml libraries (install mli+h?)
+     - convert lowcaml_stdlib to library
 
    - porting
      - syscall
@@ -44,6 +42,7 @@
 let log fmt = Format.printf (fmt ^^ "@.")
 let warn fmt = Format.printf ("Warning: " ^^ fmt ^^ "@.")
 let failwithf fmt = Format.kasprintf failwith fmt
+let sprintf = Printf.sprintf
 
 exception Not_supported of string
 let not_supported fmt = Format.kasprintf (fun msg -> raise (Not_supported msg)) fmt
@@ -106,6 +105,7 @@ module C_ast = struct
         args: ty list;
         return_type: ty option;
       }
+    | Include of string
 
   type t = {
     includes: string list;
@@ -251,6 +251,9 @@ module C_ast = struct
          | [] -> pr buf "void"
          | args -> sep buf ", " ty args);
         pr buf ");"
+      | Include name ->
+        pr buf "#include ";
+        pr buf name
 
     let include_ buf f =
       pr buf "#include <";
@@ -292,7 +295,7 @@ module C_ast = struct
 
     let simplify_element = function
       | Function f -> Function { f with body = simplify_body f.body }
-      | Prototype _ as p -> p
+      | Prototype _ | Include _ as el -> el
 
     let go t = { t with elements = List.map simplify_element t.elements }
   end
@@ -315,7 +318,7 @@ module Names = struct
 
   let new_var t ?(mut=false) ?ident var =
     let rec find_free_var i =
-      let var = if i = 0 then var else Printf.sprintf "%s_%d" var i in
+      let var = if i = 0 then var else sprintf "%s_%d" var i in
       if M.find_opt var t.map = None then var
       else find_free_var (i + 1)
     in
@@ -389,7 +392,7 @@ module Lowcaml = struct
             | [x] ->
               (match map_type_with_unit ~where env x with
                | Some ty -> Ptr (Const ty)
-               | None -> not_supported "unit Mut.t")
+               | None -> not_supported "unit Const_ptr.t")
             | _ -> failwithf "Expected 1 type parameter for Mut.t, but got %d in %a" (List.length args) Printtyp.type_expr ty
            )
          | _ ->
@@ -747,7 +750,7 @@ module Lowcaml = struct
           let return_ty = handle_type ~where:func_name item.str_env body.exp_type in
           let args = String.concat " -> " (List.map (fun (_id, name, ty) -> handle_type ~where:name item.str_env ty) args) in
           let external_decl =
-            Printf.sprintf {|external %s : %s -> %s = "bytecode_is_currently_not_supported_by_lowcaml" "%s" [@@noalloc]|} func_name args return_ty func_name
+            sprintf {|external %s : %s -> %s = "bytecode_is_currently_not_supported_by_lowcaml" "%s" [@@noalloc]|} func_name args return_ty func_name
           in
           c_fun, Some external_decl
         | Tstr_primitive { val_id; val_name; val_desc; val_prim; _ } ->
@@ -780,6 +783,13 @@ module Lowcaml = struct
             return_type = map_type_with_unit ~where:func_name item.str_env return_type;
           },
           None
+        | Tstr_attribute { attr_name = { txt = "include" | "locaml.include"; _ };
+                           attr_payload = PStr [{ pstr_desc = Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (header, _, None)); _ }, _); _ }]; _ } ->
+          (match String.get header 0, String.get header (String.length header - 1) with
+           | '<', '>' -> Include header
+           | '<', _ | _, '>' | exception Invalid_argument _ -> not_supported "Invalid header: %S" header;
+           | _ -> Include (sprintf "%S" header)),
+          None
         | _ ->
           not_supported "not supported: %a" print_structure_item item
       ) typed.str_items
@@ -797,7 +807,7 @@ module Util = struct
   let rand_dir () =
     let rec go i =
       if i = 0 then failwith "rand_dir: failed to create temporary directory";
-      let temp_dir = Filename.concat (Filename.get_temp_dir_name ()) (Printf.sprintf "lowcaml_stdlib_%d" (Random.bits ())) in
+      let temp_dir = Filename.concat (Filename.get_temp_dir_name ()) (sprintf "lowcaml_stdlib_%d" (Random.bits ())) in
       try
         Sys.mkdir temp_dir 0o755;
         temp_dir
@@ -862,7 +872,6 @@ let () =
           "stdbool.h";
           "stdint.h";
           "string.h";
-          "syscall.h";
           "caml/mlvalues.h";
           "caml/bigarray.h";
         ];

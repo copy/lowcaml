@@ -16,6 +16,7 @@ The following features are supported:
 - some libc types
 - stack-allocated `int`, currently called `int Mut.t`
 - a subset of the OCaml standard library, mostly functions on the above types that don't allocate
+- generating `#include` using `[@@@include "header"]
 
 The following features are *not* supported, but *may* be supported in the future:
 - C array, struct, enum, union, typedef or bindings to types from external libraries

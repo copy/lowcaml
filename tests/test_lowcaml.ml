@@ -175,3 +175,5 @@ let test_something2 x b =
   ()
 
 (* let test_mut2 () = let x = Mut.int 0 in x *) (* Must not be able to return a Mut.t *)
+
+[@@@include "<fcntl.h>"]
