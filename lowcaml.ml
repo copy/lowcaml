@@ -6,7 +6,6 @@
    - match/switch
    - lift let-bindings in expressions
    - lift mut creation
-   - bool/char in params (may need conversion stub, since there is no [@unboxed] for bool/char)
    - for-downto
    - built-in C types (uint8_t, etc.)
    - custom C types (struct)
@@ -72,6 +71,7 @@ module C_ast = struct
     | Constant of int
     | Constant_i64 of int64
     | Constant_float of float
+    | Constant_char of char
     | Constant_bool of bool
     | Call of identifier * expression list
     | Op1 of string * expression
@@ -154,6 +154,9 @@ module C_ast = struct
       | Constant_i64 i when i = Int64.min_int -> pr buf "(-9223372036854775807-1)"; (* "integer constant is so large that it is unsigned" *)
       | Constant_i64 i -> pr buf (Int64.to_string i);
       | Constant_float f -> pr buf (Float.to_string f);
+      | Constant_char '\\' -> pr buf "'\\\\'"
+      | Constant_char c when c >= ' ' && c <= '~' -> pr buf (sprintf "'%c'" c);
+      | Constant_char c -> pr buf (sprintf "'\\x%02x'" (Char.code c));
       | Constant_bool b -> pr buf (string_of_bool b);
       | Variable I v -> pr buf v;
       | Op1 (op, arg) -> pr buf "("; pr buf op; expression buf arg; pr buf ")"
@@ -269,7 +272,7 @@ module C_ast = struct
       | Op1 (op, rhs) -> Op1 (op, simplify_expression rhs)
       | Op2 (op, lhs, rhs) -> Op2 (op, simplify_expression lhs, simplify_expression rhs)
       | Ternary (i, t, e) -> Ternary (simplify_expression i, simplify_expression t, simplify_expression e)
-      | Constant _ | Constant_bool _ | Constant_float _ | Constant_i64 _ as x -> x
+      | Constant _ | Constant_bool _ | Constant_float _ | Constant_i64 _ | Constant_char _ as x -> x
       | Variable _ as v -> v
       | Deref e -> Deref (simplify_expression e)
       | Addr_of e -> Addr_of (simplify_expression e)
@@ -411,8 +414,10 @@ module Lowcaml = struct
          "(int32[@unboxed])"
        else if Path.same path Predef.path_float then
          "(float[@unboxed])"
-       (* else if Path.same path Predef.path_bool then *)
-         (* "(bool[@untagged])" *)
+       else if Path.same path Predef.path_bool then
+         "(int[@untagged])" (* mapped in OCaml stub *)
+       else if Path.same path Predef.path_char then
+         "(int[@untagged])" (* mapped in OCaml stub *)
        else if Path.same path Predef.path_bytes then
          "bytes"
        else if Path.same path Predef.path_string then
@@ -438,6 +443,11 @@ module Lowcaml = struct
   let is_bool ty =
     match Types.get_desc ty with
     | Tconstr (path, [], _) when Path.same path Predef.path_bool -> true
+    | _ -> false
+
+  let is_char ty =
+    match Types.get_desc ty with
+    | Tconstr (path, [], _) when Path.same path Predef.path_char -> true
     | _ -> false
 
   let rec get_var_from_pat pat =
@@ -612,12 +622,14 @@ module Lowcaml = struct
     | Texp_constant Const_int i -> Constant i
     | Texp_constant Const_int32 i -> Constant (Int32.to_int i)
     | Texp_constant Const_int64 i -> Constant_i64 i
-    | Texp_constant Const_char c -> Constant (Char.code c)
+    | Texp_constant Const_char c -> Constant_char c
     | Texp_constant Const_float f -> Constant_float (Float.of_string f) (* C doesn't support the all of OCaml's float literals *)
     | Texp_construct (_, { cstr_res; cstr_tag = Cstr_constant i; _ }, []) when is_bool cstr_res ->
       Constant_bool (i <> 0)
     | Texp_construct (_, { cstr_res; cstr_tag = Cstr_constant 0; _ }, []) when is_unit cstr_res ->
       Variable (create_identifer "Val_unit")
+    | Texp_construct (_, _, _) ->
+      not_supported "constructor: %a" print_expr expr
     | _ ->
       not_supported "in expression: %a" print_expr expr
 
@@ -659,11 +671,18 @@ module Lowcaml = struct
     | Texp_sequence (e1, e2) ->
       generate_body ~return:false names e1 @ generate_body ~return names e2
     | Texp_ifthenelse (cond, then_, None) ->
-      [If_then (generate_simple_expression names cond, generate_body ~return:false (Names.enter_scope names) then_)]
+      [If_then (
+          generate_simple_expression names cond,
+          generate_body ~return:false (Names.enter_scope names) then_)]
     | Texp_ifthenelse (cond, then_, Some else_) ->
-      [If_then_else (generate_simple_expression names cond, generate_body ~return (Names.enter_scope names) then_, generate_body ~return (Names.enter_scope names) else_)]
+      [If_then_else (
+          generate_simple_expression names cond,
+          generate_body ~return (Names.enter_scope names) then_,
+          generate_body ~return (Names.enter_scope names) else_)]
     | Texp_while (cond, body) ->
-      [While (generate_simple_expression names cond, generate_body ~return:false (Names.enter_scope names) body)]
+      [While (
+          generate_simple_expression names cond,
+          generate_body ~return:false (Names.enter_scope names) body)]
     | Texp_for (ident, pat, expr_from, { exp_desc = Texp_constant Const_int upto; _ }, Upto, body) ->
       let var = match pat.ppat_desc with Ppat_var v -> v.txt | Ppat_any -> "i" | _ -> not_supported "pattern in for-loop" in
       let names, var = Names.new_var names ~ident var in
@@ -685,7 +704,7 @@ module Lowcaml = struct
     | Texp_construct (_, _, _) when is_unit body.exp_type ->
       []
     | Texp_construct (_, _, _) ->
-      not_supported "constructor: %a" print_expr body
+      [Return (generate_simple_expression names body)]
     | Texp_assert _ ->
       failwith "TODO: assert"
     | Texp_apply _ | Texp_constant _ | Texp_ident _ when return ->
@@ -740,11 +759,33 @@ module Lowcaml = struct
           let args, body = get_args value.vb_expr in
           if args = [] then failwith "TODO: Constant";
           let return_ty = handle_type ~where:func_name item.str_env body.exp_type in
-          let args = String.concat " -> " (List.map (fun (_id, name, ty) -> handle_type ~where:name item.str_env ty) args) in
+          let arg_types = String.concat " -> " (List.map (fun (_id, name, ty) -> handle_type ~where:name item.str_env ty) args) in
           let external_decl =
-            sprintf {|external %s : %s -> %s = "bytecode_is_currently_not_supported_by_lowcaml" "%s" [@@noalloc]|} func_name args return_ty func_name
+            sprintf {|external %s : %s -> %s = "bytecode_not_supported_by_lowcaml" "%s" [@@noalloc]|} func_name arg_types return_ty func_name
           in
-          c_fun, Some external_decl
+          let conversion_stub =
+            if List.exists (fun (_, _, ty) -> is_bool ty || is_char ty) args ||
+               is_char body.exp_type ||
+               is_bool body.exp_type
+            then
+              let arg_names = String.concat " " (List.map (fun (_id, name, _ty) -> name) args) in
+              let arg_names_mapped = String.concat " " (List.map (fun (_id, name, ty) ->
+                  if is_bool ty then sprintf "(Bool.to_int %s)" name
+                  else if is_char ty then sprintf "(Char.code %s)" name
+                  else name
+                ) args) in
+              let call =
+                if is_char body.exp_type then
+                  sprintf "Char.chr (0xFF land %s %s)" func_name arg_names_mapped
+                else if is_bool body.exp_type then
+                  sprintf "0 <> %s %s" func_name arg_names_mapped
+                else sprintf "%s %s" func_name arg_names_mapped
+              in
+              sprintf "\nlet %s %s = %s" func_name arg_names call
+            else
+              ""
+          in
+          c_fun, Some (external_decl ^ conversion_stub)
         | Tstr_primitive { val_id; val_name; val_desc; val_prim; _ } ->
           let func_name = match val_prim with [n] -> n | _ -> not_supported "primitive with more than one name: %s" val_name.txt in
           log "external: %a %s %s" Ident.print val_id val_name.txt func_name;

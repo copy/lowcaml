@@ -5,7 +5,6 @@ bindings to C libraries.
 
 The following features are supported:
 - Built-in OCaml types (`int`, `int32`, `int64`, `unit`, `bool`, `char`, `string`, `bytes` and `Bigarray.Array1.t`) with the following limitations:
-  - `bool` and `char` cannot appear in parameters or return values, since OCaml doesn't support the unboxed annotation on them
   - `unit` is only supported as parameter and return value
 - top-level functions
 - for and while loops
@@ -194,8 +193,8 @@ The mapping is as follows:
 | `int`                         | `int64_t`         |  X  |  X  |  X  |  X  | Note: larger than OCaml's built-in `int`                               |
 | `int64`                       | `int64_t`         |  X  |  X  |  X  |  X  |                                                                        |
 | `int32`                       | `int32_t`         |  X  |  X  |  X  |  X  |                                                                        |
-| `bool`                        | `bool`            |  X  |     |     |  X  | arg/ret requires (`bool[@untagged]`) support in OCaml or entry stubs   |
-| `char`                        | `char`            |  X  |     |     |  X  | arg/ret requires (`char[@untagged]`) support in OCaml or entry stubs   |
+| `bool`                        | `bool`            |  X  |  X  |  X  |  X  | generates conversion stub if used in param or return                   |
+| `char`                        | `char`            |  X  |  X  |  X  |  X  | generates conversion stub if used in param or return                   |
 | `bytes`                       | `value`           |  X  |  X  |  X  |     |                                                                        |
 | `string`                      | `value`           |  X  |  X  |  X  |     |                                                                        |
 | `Bigarray.Array1.t`           | `value`           |  X  |  X  |  X  |     | Only `Bigarray.C_layout`                                               |

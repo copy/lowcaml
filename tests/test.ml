@@ -48,6 +48,16 @@ let () =
 
   assert (Lstubs.test_bool1 0 = 54);
   assert (Lstubs.test_bool1 1 = 42);
+  assert (Lstubs.test_bool_param false = 54);
+  assert (Lstubs.test_bool_param true = 42);
+  assert (Lstubs.test_bool_ret 42 = false);
+  assert (Lstubs.test_bool_ret 43 = true);
+
+  assert (Lstubs.test_bool_id true = true);
+  assert (Lstubs.test_char_id 'a' = 'a');
+  assert (Lstubs.test_int_id 37 = 37);
+  assert (Lstubs.test_int32_id 37l = 37l);
+  assert (Lstubs.test_int64_id 37L = 37L);
 
   let x = 43.0 and y = 12.5 in
   assert (Lstubs.test_float1 x y = x +. y *. 3.0 -. 123. /. 7.0);
@@ -62,6 +72,14 @@ let () =
   assert (Lstubs.test_literal_i32_1 () = 2147483647l);
   assert (Lstubs.test_literal_i32_2 () = -2147483648l);
   assert (Lstubs.test_literal_i32_3 () = Int32.add 2147483647l (-2147483648l));
+
+  assert (Lstubs.test_literal_bool1 () = false);
+  assert (Lstubs.test_literal_bool2 () = true);
+
+  assert (Lstubs.test_literal_char1 () = 'b');
+  assert (Lstubs.test_literal_char2 () = '\\');
+  assert (Lstubs.test_literal_char3 () = '\x00');
+  assert (Lstubs.test_literal_char4 () = '\xff');
 
   let b = Bytes.make 50 '\x00' in
   Lstubs.test_sieve b;

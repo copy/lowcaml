@@ -41,9 +41,16 @@ let test_for2 b =
     ()
   done
 
-let test_bool1 x =
-  let b = x = 1 in
-  if b then 42 else 54
+let test_bool1 x = let b = x = 1 in if b then 42 else 54
+let test_bool_param x = if x then 42 else 54
+let test_bool_ret x = x > 42
+
+let test_bool_id (x : bool) = x
+let test_char_id (x : char) = x
+let test_int_id (x : int) = x
+let test_int32_id (x : int32) = x
+let test_int64_id (x : int64) = x
+let test_float_id (x : float) = x
 
 let test_float1 x y =
   x +. y *. 3.0 -. 123. /. 7.0
@@ -70,6 +77,14 @@ let test_literal_float6 () = 12.43e-99
 let test_literal_float7 () = 0x1.
 let test_literal_float8 () = 0xa.b
 let test_literal_float9 () = 0x1_2_._2_p4_2_
+
+let test_literal_bool1 () = false
+let test_literal_bool2 () = true
+
+let test_literal_char1 () = 'b'
+let test_literal_char2 () = '\\'
+let test_literal_char3 () = '\x00'
+let test_literal_char4 () = '\xff'
 
 let test_shadow1 x =
   let x = x + 1 in
