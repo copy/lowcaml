@@ -46,12 +46,18 @@ module Int32 : sig
   type t = int32
   external of_int : int -> t = "lowcaml_int32_of_int"
   external to_int : t -> int = "lowcaml_int32_to_int"
+  external of_char : char -> t = "lowcaml_int32_of_char"
 
   external ( + ) : t -> t -> t = "%addint"
   external ( * ) : t -> t -> t = "%mulint"
   external ( lsl ) : t -> int -> t = "%lslint"
   external ( asr ) : t -> int -> t = "%asrint"
   external ( lsr ) : t -> int -> t = "%int32_lsr"
+end
+
+module Char : sig
+  type t = char
+  external code : t -> int = "lowcaml_char_to_int"
 end
 
 module Float : sig
@@ -129,6 +135,8 @@ module Const_void_ptr : sig
   external offset : t -> int -> t = "lowcaml_ptr_offset"
   (** Note: The offset is in bytes *)
 
+  external get_uint8 : t -> int = "lowcaml_ptr_get_uint8"
+
   external of_mut : 'a Mut.t -> t = "%identity"
   (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
 end
@@ -188,6 +196,7 @@ module Const_ptr : sig
 
   external of_void_ptr : Void_ptr.t -> 'a t = "%identity"
   external of_const_void_ptr : Const_void_ptr.t -> 'a t = "%identity"
+  external to_const_void_ptr : 'a t -> Const_void_ptr.t = "%identity"
   external of_mut : 'a Mut.t -> 'a t = "%identity"
   (** warning: Mut.t is allocated on a stack, and therefore has a limited lifetime *)
 end
@@ -226,8 +235,10 @@ module SIMD : sig
   external _mm_storeu_si128 : __m128i Ptr.t -> __m128i -> unit = "_mm_storeu_si128"
 
   type __m256i
+  external _mm256_set1_epi8 : char -> __m256i = "_mm256_set1_epi8"
   external _mm256_set1_epi32 : int32 -> __m256i = "_mm256_set1_epi32"
   external _mm256_set_epi32 : int32 -> int32 -> int32 -> int32 -> int32 -> int32 -> int32 -> int32 -> __m256i = "_mm256_set_epi32"
+  external _mm256_cmpeq_epi8 : __m256i -> __m256i -> __m256i = "_mm256_cmpeq_epi8"
   external _mm256_cmpeq_epi32 : __m256i -> __m256i -> __m256i = "_mm256_cmpeq_epi32"
   external _mm256_and_si256 : __m256i -> __m256i -> __m256i = "_mm256_and_si256"
   external _mm256_blendv_epi8 : __m256i -> __m256i -> __m256i -> __m256i = "_mm256_blendv_epi8"
@@ -235,9 +246,13 @@ module SIMD : sig
   external _mm256_store_si256 : __m256i Ptr.t -> __m256i -> unit = "_mm256_store_si256"
   external _mm256_stream_si256 : __m256i Ptr.t -> __m256i -> unit = "_mm256_stream_si256"
 
+  external _mm256_movemask_epi8 : __m256i -> int = "_mm256_movemask_epi8"
+
   external _mm256_extract_epi64 :  __m256i -> int32 -> int = "_mm256_extract_epi64"
   external _mm256_extracti128_si256 :  __m256i -> int32 -> __m128i = "_mm256_extracti128_si256"
   external _mm256_castsi256_si128 : __m256i -> __m128i = "_mm256_castsi256_si128"
+
+  external _mm256_loadu_si256 : __m256i Const_ptr.t -> __m256i = "_mm256_loadu_si256"
 
   (* external _mm256_storeu_epi8 : Ptr.t -> __m256i -> unit = "_mm256_storeu_epi8" *) (* AVX512 *)
 end

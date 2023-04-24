@@ -526,6 +526,9 @@ module Lowcaml = struct
     | "lowcaml_ptr_to_int" ->
       let ptr = args1 name args in
       Cast (I64, ptr)
+    | "lowcaml_ptr_get_uint8" ->
+      let ptr = args1 name args in
+      Deref (Cast (Ptr U8, ptr))
     | "lowcaml_ptr_write64" ->
       let ptr, value = args2 name args in
       Op2 ("=", Deref (Cast (Ptr I64, ptr)), value)
@@ -542,8 +545,12 @@ module Lowcaml = struct
       Cast (Const_void_ptr, args1 name args)
     | "lowcaml_int32_to_int" ->
       Cast (I64, args1 name args)
+    | "lowcaml_char_to_int" ->
+      Op2 ("&", Constant 0xFF, Cast (I64, args1 name args))
     | "lowcaml_int32_of_int" ->
       Cast (I32, args1 name args)
+    | "lowcaml_int32_of_char" ->
+      Op2 ("&", Constant 0xFF, Cast (I32, args1 name args))
     | "lowcaml_int_to_uint64_t" ->
       Cast (U64, args1 name args)
     | "lowcaml_deref" ->
