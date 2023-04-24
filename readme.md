@@ -4,8 +4,8 @@ code, but it can also be used to accelerate simple OCaml code and create
 bindings to C libraries.
 
 The following features are supported:
-- Built-in OCaml types (`int`, `int32`, `int64`, `unit`, `bool`, `char`, `string`, `bytes` and `Bigarray.Array1.t`) with the following limitations:
-  - `unit` is only supported as parameter and return value
+- built-in OCaml types (`int`, `int32`, `int64`, `unit`, `bool`, `char`, `string`, `bytes` and `Bigarray.Array1.t`)
+- a subset of the OCaml standard library, mostly functions on the above types that don't allocate
 - top-level functions
 - for and while loops
 - if-else expressions
@@ -13,8 +13,7 @@ The following features are supported:
 - externals, which call external C functions directly
 - calling other lowcaml functions
 - some libc types
-- stack-allocated `int`, currently called `int Mut.t`
-- a subset of the OCaml standard library, mostly functions on the above types that don't allocate
+- stack-allocated `int` (like OCaml's `ref`), currently called `int Mut.t`
 - generating `#include` using `[@@@include "header"]`
 
 The following features are *not* supported, but *may* be supported in the future:
@@ -189,7 +188,7 @@ The mapping is as follows:
 
 | OCaml type                    | C type            | let | arg | ret | ext | Notes                                                                  |
 |-------------------------------|-------------------|-----|-----|-----|-----|------------------------------------------------------------------------|
-| `unit`                        | `value` or `void` |     |  X  |  X  |  x  | `value` in arguments of lowcaml functions, `void` otherwise            |
+| `unit`                        | `value` or `void` |  X  |  X  |  X  |  X  | `value` in arguments of lowcaml functions, `void` otherwise            |
 | `int`                         | `int64_t`         |  X  |  X  |  X  |  X  | note: larger than OCaml's built-in `int`                               |
 | `int64`                       | `int64_t`         |  X  |  X  |  X  |  X  |                                                                        |
 | `int32`                       | `int32_t`         |  X  |  X  |  X  |  X  |                                                                        |

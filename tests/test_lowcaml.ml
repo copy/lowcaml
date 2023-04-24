@@ -119,6 +119,8 @@ let test_shadow5 () =
 
 let test_unit1 () () = ()
 let test_unit2 () = test_unit1 () ()
+let test_unit3 () = let () = () in ()
+(* let test_unit4 () = let foo = () in foo *) (* fails for now *)
 
 (* a prime sieve *)
 let test_sieve b =

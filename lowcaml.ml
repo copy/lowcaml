@@ -731,6 +731,13 @@ module Lowcaml = struct
     | Texp_constant _ | Texp_ident _ ->
       warn "meaningless value in function body: %a" print_expr body;
       [Expression (generate_simple_expression names body)]
+    | Texp_match ({ exp_type; _ } as e1, [{ c_lhs = { pat_desc = Tpat_value p; }; c_guard = None; c_rhs = { exp_desc; _ } as e2}], Total) when is_unit exp_type ->
+      (* let () = ... in ... *)
+      (match (p :> pattern) with
+       | { pat_desc = Tpat_construct _ } ->
+         generate_body ~return:false names e1 @ generate_body ~return names e2
+       | _ ->
+         not_supported "in function body: %a" print_expr body)
     | Texp_open (_, body) ->
       generate_body ~return names body
     | Texp_let (Recursive, _, _) ->
