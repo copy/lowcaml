@@ -25,6 +25,12 @@
    - use fsanitize=undefined
    - generate (void)x to handle unused warning (enable -Wextra)
    - sub-modules
+   - inner functions
+   - named arguments
+   - optional arguments
+   - 'a -> void*
+   - [@inline] -> __attribute__((always_inline))
+   - (local) try -> goto
    - "export"/static
    - let (bar[@c_name "foo"]) x y =
    - type foo [@c_name "foo"]
@@ -32,10 +38,14 @@
    - lowcaml libraries (install mli+h?)
      - convert lowcaml_stdlib to library
 
+   - things to rework
+     - the pointer types
+
    - porting
-     - syscall
-     - find_external_symbols
+     - Array.sort (from OCaml stdlib)
      - bigstringaf (or other) stubs
+     - add two float bigarrays (like owl)
+     - bitops (popcount, bsr, bsf)
 *)
 
 let log fmt = Format.printf (fmt ^^ "@.")
@@ -786,8 +796,7 @@ module Lowcaml = struct
               ""
           in
           c_fun, Some (external_decl ^ conversion_stub)
-        | Tstr_primitive { val_id; val_name; val_desc; val_prim; _ } ->
-          let func_name = match val_prim with [n] -> n | _ -> not_supported "primitive with more than one name: %s" val_name.txt in
+        | Tstr_primitive { val_id; val_name; val_desc; val_prim = [func_name]; _ } ->
           log "external: %a %s %s" Ident.print val_id val_name.txt func_name;
           let rec get_args_from_ty ty =
             match Types.get_desc ty with
@@ -816,6 +825,8 @@ module Lowcaml = struct
             return_type = map_type_with_unit ~where:func_name item.str_env return_type;
           },
           None
+        | Tstr_primitive { val_id; val_name; val_desc; val_prim; _ } ->
+          not_supported "primitive with more than one name: %s" val_name.txt
         | Tstr_attribute { attr_name = { txt = "include" | "locaml.include"; _ };
                            attr_payload = PStr [{ pstr_desc = Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (header, _, None)); _ }, _); _ }]; _ } ->
           (match String.get header 0, String.get header (String.length header - 1) with

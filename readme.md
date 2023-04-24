@@ -15,7 +15,7 @@ The following features are supported:
 - some libc types
 - stack-allocated `int`, currently called `int Mut.t`
 - a subset of the OCaml standard library, mostly functions on the above types that don't allocate
-- generating `#include` using `[@@@include "header"]
+- generating `#include` using `[@@@include "header"]`
 
 The following features are *not* supported, but *may* be supported in the future:
 - C array, struct, enum, union, typedef or bindings to types from external libraries
@@ -190,14 +190,14 @@ The mapping is as follows:
 | OCaml type                    | C type            | let | arg | ret | ext | Notes                                                                  |
 |-------------------------------|-------------------|-----|-----|-----|-----|------------------------------------------------------------------------|
 | `unit`                        | `value` or `void` |     |  X  |  X  |  x  | `value` in arguments of lowcaml functions, `void` otherwise            |
-| `int`                         | `int64_t`         |  X  |  X  |  X  |  X  | Note: larger than OCaml's built-in `int`                               |
+| `int`                         | `int64_t`         |  X  |  X  |  X  |  X  | note: larger than OCaml's built-in `int`                               |
 | `int64`                       | `int64_t`         |  X  |  X  |  X  |  X  |                                                                        |
 | `int32`                       | `int32_t`         |  X  |  X  |  X  |  X  |                                                                        |
 | `bool`                        | `bool`            |  X  |  X  |  X  |  X  | generates conversion stub if used in param or return                   |
 | `char`                        | `char`            |  X  |  X  |  X  |  X  | generates conversion stub if used in param or return                   |
 | `bytes`                       | `value`           |  X  |  X  |  X  |     |                                                                        |
 | `string`                      | `value`           |  X  |  X  |  X  |     |                                                                        |
-| `Bigarray.Array1.t`           | `value`           |  X  |  X  |  X  |     | Only `Bigarray.C_layout`                                               |
+| `Bigarray.Array1.t`           | `value`           |  X  |  X  |  X  |     | only `Bigarray.C_layout`                                               |
 | `int Lowcaml_stdlib.Mut.t`    | `int` or `int*`   |  X  |     |     |     | stack-allocated, memory-safe, not lifetime-safe, similar to `int ref`  |
 | `Lowcaml_stdlib.Ptr.t`        | `void*`           |  X  |     |     |  X  | unsafe, primarily for calling external C functions                     |
 | `Lowcaml_stdlib.Const_ptr.t`  | `const void*`     |  X  |     |     |  X  | unsafe, primarily for calling external C functions                     |

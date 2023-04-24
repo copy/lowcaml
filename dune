@@ -3,7 +3,6 @@
  (public_name lowcaml.exe)
  (package lowcaml)
  (modules lowcaml lowcaml_stdlib_cmi)
- (flags :standard -warn-error -3-26-27-32-48-58-60 -bin-annot -color always)
  (ocamlopt_flags :standard -O3)
  (libraries compiler-libs compiler-libs.optcomp compiler-libs.common))
 
@@ -30,3 +29,15 @@
  (public_name lowcaml.stdlib)
  (modules lowcaml_stdlib)
  (virtual_modules lowcaml_stdlib))
+
+(env
+ (dev
+  (flags
+   :standard
+   -w
+   @68
+   -warn-error
+   -3-26-27-32-48-58-60
+   -bin-annot
+   -color
+   always)))
