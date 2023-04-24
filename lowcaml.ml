@@ -480,7 +480,7 @@ module Lowcaml = struct
         partial = Total;
       } ->
       let rest, body = get_args c_rhs in
-      let ident, name = get_var_from_pat c_lhs in
+      let _ident, name = get_var_from_pat c_lhs in
       (param, name, c_lhs.pat_type) :: rest, body
     | Texp_function _ ->
       not_supported "partial/label/pattern in function: %a" print_expr expr
@@ -488,10 +488,10 @@ module Lowcaml = struct
       [], expr
 
   let generate_primitive name args =
-    let bad_arity expected f got = failwithf "Bad arity: %s expected 1 got %d" f expected (List.length args) in
-    let args1 f = function [x] -> x | args -> bad_arity 1 f args in
-    let args2 f = function [x; y] -> x, y | args -> bad_arity 2 f args in
-    let args3 f = function [x; y; z] -> x, y, z | args -> bad_arity 3 f args in
+    let bad_arity expected f = failwithf "Bad arity: %s expected %d got %d" f expected (List.length args) in
+    let args1 f = function [x] -> x | _ -> bad_arity 1 f in
+    let args2 f = function [x; y] -> x, y | _ -> bad_arity 2 f in
+    let args3 f = function [x; y; z] -> x, y, z | _ -> bad_arity 3 f in
     let bytes_get size args =
       let buf, offset = args2 name args in
       (* NOTE: only ub-safe because all C code is compiled with -fno-strict-aliasing *)
@@ -592,7 +592,7 @@ module Lowcaml = struct
 
   let rec generate_simple_expression names expr =
     match expr.exp_desc with
-    | Texp_apply ({ exp_desc = Texp_ident (path, _, { val_kind = Val_prim prim; _ }); _ }, args) ->
+    | Texp_apply ({ exp_desc = Texp_ident (_path, _, { val_kind = Val_prim prim; _ }); _ }, args) ->
       let args =
         match args with
         | [Asttypes.Nolabel, Some t] when is_unit t.exp_type -> []
@@ -614,7 +614,7 @@ module Lowcaml = struct
       Call (create_identifer fname, args)
     | Texp_apply _ ->
       not_supported "apply: %a" print_expr expr
-    | Texp_ident (path, lident, { val_kind = Val_reg; _ }) ->
+    | Texp_ident (path, _lident, { val_kind = Val_reg; _ }) ->
       let id = Path.head path in
       let name, constness = Names.get names id in
       (match constness with
@@ -625,11 +625,11 @@ module Lowcaml = struct
         generate_simple_expression names cond,
         generate_simple_expression names then_,
         generate_simple_expression names else_)
-    | Texp_ifthenelse (cond, then_, None) ->
+    | Texp_ifthenelse (_cond, _then, None) ->
       not_supported "if-then is currently not allowed in expression: %a" print_expr expr
     | Texp_open (_, expr) ->
       generate_simple_expression names expr
-    | Texp_ident (path, ident, _) ->
+    | Texp_ident (_path, _ident, _) ->
       failwith "TODO: ident with kind <> Val_reg"
     | Texp_let _ ->
       not_supported "let in expression: %a" print_expr expr
@@ -655,7 +655,7 @@ module Lowcaml = struct
     | Texp_let (Nonrecursive, [
         { vb_pat;
           vb_expr = {
-            exp_desc = Texp_apply ({ exp_desc = Texp_ident (path, _, { val_kind = Val_prim { prim_name = "lowcaml_mut_create"; _ }; _ }); _ }, [Nolabel, Some rhs]);
+            exp_desc = Texp_apply ({ exp_desc = Texp_ident (_path, _, { val_kind = Val_prim { prim_name = "lowcaml_mut_create"; _ }; _ }); _ }, [Nolabel, Some rhs]);
             _ };
           _ }], expr) ->
       let ident, var = get_var_from_pat vb_pat in
@@ -731,10 +731,10 @@ module Lowcaml = struct
     | Texp_constant _ | Texp_ident _ ->
       warn "meaningless value in function body: %a" print_expr body;
       [Expression (generate_simple_expression names body)]
-    | Texp_match ({ exp_type; _ } as e1, [{ c_lhs = { pat_desc = Tpat_value p; }; c_guard = None; c_rhs = { exp_desc; _ } as e2}], Total) when is_unit exp_type ->
+    | Texp_match ({ exp_type; _ } as e1, [{ c_lhs = { pat_desc = Tpat_value p; _ }; c_guard = None; c_rhs = e2}], Total) when is_unit exp_type ->
       (* let () = ... in ... *)
       (match (p :> pattern) with
-       | { pat_desc = Tpat_construct _ } ->
+       | { pat_desc = Tpat_construct _; _ } ->
          generate_body ~return:false names e1 @ generate_body ~return names e2
        | _ ->
          not_supported "in function body: %a" print_expr body)
@@ -839,7 +839,7 @@ module Lowcaml = struct
             return_type = map_type_with_unit ~where:func_name item.str_env return_type;
           },
           None
-        | Tstr_primitive { val_id; val_name; val_desc; val_prim; _ } ->
+        | Tstr_primitive { val_name; _ } ->
           not_supported "primitive with more than one name: %s" val_name.txt
         | Tstr_attribute { attr_name = { txt = "include" | "locaml.include"; _ };
                            attr_payload = PStr [{ pstr_desc = Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (header, _, None)); _ }, _); _ }]; _ } ->
