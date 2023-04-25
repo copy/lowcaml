@@ -29,15 +29,23 @@ let test_callee x y =
 let test_call x y z =
   test_callee x (test_callee y z)
 
+let test_for_helper b =
+  Bytes.set_int16_le b 0 (1 + Bytes.get_uint16_le b 0);
+  10
 let test_for1 b =
   for i = 0 to 10 do
     Bytes.set_int16_le b (2 * i) i
   done
-let test_for2_helper b =
-  Bytes.set_int16_le b 0 (1 + Bytes.get_uint16_le b 0);
-  10
 let test_for2 b =
-  for _ = 0 to test_for2_helper b do
+  for _ = 0 to test_for_helper b do
+    ()
+  done
+let test_for3 b =
+  for i = 1 downto 0 do
+    Bytes.set_int16_le b i 42;
+  done
+let test_for4 b =
+  for _ = 14 downto test_for_helper b do
     ()
   done
 

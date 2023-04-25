@@ -42,8 +42,17 @@ let () =
     assert (Bytes.get_uint16_le b (2 * i) = i)
   done;
 
+  let b = Bytes.make 3 '\x00' in
+  Lstubs.test_for3 b;
+  assert (Bytes.get_uint8 b 0 = 42);
+  assert (Bytes.get_uint8 b 1 = 0);
+  assert (Bytes.get_uint8 b 2 = 0);
+
   let b = Bytes.make 2 '\x00' in
   Lstubs.test_for2 b;
+  assert (Bytes.get_uint16_le b 0 = 1);
+  let b = Bytes.make 2 '\x00' in
+  Lstubs.test_for4 b;
   assert (Bytes.get_uint16_le b 0 = 1);
 
   assert (Lstubs.test_bool1 0 = 54);

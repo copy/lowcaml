@@ -6,7 +6,6 @@
    - match/switch
    - lift let-bindings in expressions
    - lift mut creation
-   - for-downto
    - built-in C types (uint8_t, etc.)
    - custom C types (struct)
      - clock_gettime64 needs [struct timespec t; clock_gettime(&t)]
@@ -700,20 +699,22 @@ module Lowcaml = struct
       [While (
           generate_simple_expression names cond,
           generate_body ~return:false (Names.enter_scope names) body)]
-    | Texp_for (ident, pat, expr_from, { exp_desc = Texp_constant Const_int upto; _ }, Upto, body) ->
+    | Texp_for (ident, pat, expr_from, { exp_desc = Texp_constant Const_int upto; _ }, direction, body) ->
+      let op_condition, op_next = match direction with Upto -> "<=", "+=" | Downto -> ">=", "-=" in
       let var = match pat.ppat_desc with Ppat_var v -> v.txt | Ppat_any -> "i" | _ -> not_supported "pattern in for-loop" in
       let names, var = Names.new_var names ~ident var in
       let decl = I64, var, generate_simple_expression names expr_from in
-      let while_ = Op2 ("<=", Variable var, Constant upto) in
-      let after = Op2 ("+=", Variable var, Constant 1) in
+      let while_ = Op2 (op_condition, Variable var, Constant upto) in
+      let after = Op2 (op_next, Variable var, Constant 1) in
       [For (decl, while_, after, generate_body ~return:false (Names.enter_scope names) body)]
-    | Texp_for (ident, pat, expr_from, expr_to, Upto, body) ->
+    | Texp_for (ident, pat, expr_from, expr_to, direction, body) ->
+      let op_condition, op_next = match direction with Upto -> "<=", "+=" | Downto -> ">=", "-=" in
       let var = match pat.ppat_desc with Ppat_var v -> v.txt | Ppat_any -> "i" | _ -> not_supported "pattern in for-loop" in
       let names, var = Names.new_var names ~ident var in
       let names, upto = Names.new_var names "upto" in
       let decl = I64, var, generate_simple_expression names expr_from in
-      let while_ = Op2 ("<=", Variable var, Variable upto) in
-      let after = Op2 ("+=", Variable var, Constant 1) in
+      let while_ = Op2 (op_condition, Variable var, Variable upto) in
+      let after = Op2 (op_next, Variable var, Constant 1) in
       [
         Declaration (Const I64, upto, generate_simple_expression names expr_to);
         For (decl, while_, after, generate_body ~return:false (Names.enter_scope names) body);
