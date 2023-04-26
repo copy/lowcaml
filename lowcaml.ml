@@ -36,9 +36,15 @@
    - nicer cmdline interface
    - lowcaml libraries (install mli+h?)
      - convert lowcaml_stdlib to library
+   - order of side effects (e.g. in parameters)?
 
    - things to rework
      - the pointer types
+
+   - examples
+     - sieve
+     - memchr (simd + bindings)
+     - bigarray ops
 
    - porting
      - Array.sort (from OCaml stdlib)
@@ -333,6 +339,103 @@ module Names = struct
     C_ast.create_identifer var
 end
 
+module OCaml_type = struct
+  type t =
+    | Type_variable of { name: string }
+    | Int
+    | Int32
+    | Int64
+    | Float
+    | Char
+    | Bool
+    | Unit
+    | Bytes
+    | String
+    | Bigarray
+    (* Lowcaml_stdlib types below *)
+    | F32
+    | U8
+    | U16
+    | U32
+    | U64
+    | I8
+    | I16
+    | M128i
+    | M256i
+    | Void_ptr
+    | Const_void_ptr
+    | Ptr of t
+    | Const_ptr of t
+    | Mut of t
+
+  let rec map ~where env ty =
+    match Types.get_desc (Ctype.expand_head env ty) with
+    | Tvar (Some name) -> Type_variable { name = "'" ^ name }
+    | Tvar None -> Type_variable { name = "_" }
+    | Tconstr (path, [], _) when Path.same path Predef.path_unit -> Unit
+    | Tconstr (path, [], _) when Path.same path Predef.path_bool -> Bool
+    | Tconstr (path, [], _) when Path.same path Predef.path_int -> Int
+    | Tconstr (path, [], _) when Path.same path Predef.path_int32 -> Int32
+    | Tconstr (path, [], _) when Path.same path Predef.path_int64 -> Int64
+    | Tconstr (path, [], _) when Path.same path Predef.path_float -> Float
+    | Tconstr (path, [], _) when Path.same path Predef.path_char -> Char
+    | Tconstr (path, [], _) when Path.same path Predef.path_bytes -> Bytes
+    | Tconstr (path, [], _) when Path.same path Predef.path_string -> String
+    | Tconstr (path, [], _) ->
+      (match Path.name path with
+       | "Lowcaml_stdlib.F32.t" -> F32
+       | "Lowcaml_stdlib.SIMD.__m128i" -> M128i
+       | "Lowcaml_stdlib.SIMD.__m256i" -> M256i
+       | "Lowcaml_stdlib.Void_ptr.t" -> Void_ptr
+       | "Lowcaml_stdlib.Const_void_ptr.t" -> Const_void_ptr
+       | "Lowcaml_stdlib.Uint8_t.t" -> U8
+       | "Lowcaml_stdlib.Uint16_t.t" -> U16
+       | "Lowcaml_stdlib.Uint32_t.t" -> U32
+       | "Lowcaml_stdlib.Uint64_t.t" -> U64
+       | "Lowcaml_stdlib.Int8_t.t" -> I8
+       | "Lowcaml_stdlib.Int16_t.t" -> I16
+       | _ -> not_supported "unknown type: %a in %s" Printtyp.type_expr ty where)
+    | Tconstr (path, [tyarg], _) ->
+      (match Path.name path with
+       | "Lowcaml_stdlib.Ptr.t" -> Ptr (map ~where env tyarg)
+       | "Lowcaml_stdlib.Const_ptr.t" -> Const_ptr (map ~where env tyarg)
+       | "Lowcaml_stdlib.Mut.t" -> Mut (map ~where env tyarg)
+       | _ -> not_supported "unknown type: %a in %s" Printtyp.type_expr ty where)
+    | Tconstr (path, [_ty; _kind; _layout], _) when Path.name path = "Stdlib__Bigarray.Array1.t" ->
+      Bigarray (* TODO: check 3rd type parameter is c_layout? *)
+    | _ ->
+      not_supported "type expression: %a in %s" Printtyp.type_expr ty where
+
+  let rec show = function
+    | Type_variable { name } -> name
+    | Int -> "int"
+    | Int32 -> "int32"
+    | Int64 -> "int64"
+    | Float -> "float"
+    | Char -> "char"
+    | Bool -> "bool"
+    | Unit -> "unit"
+    | Bytes -> "bytes"
+    | String -> "string"
+    | Bigarray -> "(_, _, _) Bigarray.Array1.t"
+    | F32 -> "Lowcaml_stdlib.F32.t"
+    | U8 -> "Lowcaml_stdlib.Uint8_t.t"
+    | U16 -> "Lowcaml_stdlib.Uint16_t.t"
+    | U32 -> "Lowcaml_stdlib.Uint32_t.t"
+    | U64 -> "Lowcaml_stdlib.Uint64_t.t"
+    | I8 -> "Lowcaml_stdlib.Int8_t.t"
+    | I16 -> "Lowcaml_stdlib.Int16_t.t"
+    | M128i -> "Lowcaml_stdlib.SIMD.__m128i"
+    | M256i -> "Lowcaml_stdlib.SIMD.__m256i"
+    | Void_ptr -> "Lowcaml_stdlib.Void_ptr.t"
+    | Const_void_ptr -> "Lowcaml_stdlib.Const_void_ptr.t"
+    | Ptr t -> show t ^ " Lowcaml_stdlib.Ptr.t"
+    | Const_ptr t -> show t ^ " Lowcaml_stdlib.Const_ptr.t"
+    | Mut t -> show t ^ " Lowcaml_stdlib.Mut.t"
+
+  (* TODO: random test: x = map (show x) *)
+end
+
 module Lowcaml = struct
   open Typedtree
   open C_ast
@@ -341,108 +444,50 @@ module Lowcaml = struct
   let print_expr fmt e = Pprintast.expression fmt (Untypeast.untype_expression e)
   let print_pat fmt p = Pprintast.pattern fmt (Untypeast.untype_pattern p)
 
-  let is_type_var ty =
-    match Types.get_desc ty with
-    | Types.Tvar _ -> true
-    | _ -> false
+  let rec ocaml_type_to_ctype ~where = function
+    | OCaml_type.Int | Int64 -> I64
+    | Int32 -> I32
+    | Float -> Double
+    | Bool -> Bool
+    | Char -> Char
+    | Bytes | String | Bigarray | Unit -> Value
+    | F32 -> Float
+    | U8 -> U8
+    | U16 -> U16
+    | U32 -> U32
+    | U64 -> U64
+    | I8 -> I8
+    | I16 -> I16
+    | M128i -> M128i
+    | M256i -> M256i
+    | Void_ptr -> Void_ptr
+    | Const_void_ptr -> Const_void_ptr
+    | Ptr Type_variable _ | Mut Type_variable _ -> Void_ptr
+    | Const_ptr Type_variable _ -> Const_void_ptr
+    | Ptr t -> Ptr (ocaml_type_to_ctype ~where t)
+    | Const_ptr t -> Ptr (Const (ocaml_type_to_ctype ~where t))
+    | Mut t -> Ptr (ocaml_type_to_ctype ~where t)
+    | Type_variable _ as t -> not_supported "type variable: %s" (OCaml_type.show t)
 
-  let rec map_type_with_unit ~where env ty =
-    let ty = Ctype.expand_head env ty in
-    match Types.get_desc ty with
-    | Tconstr (path, _, _) when Path.same path Predef.path_unit ->
-      None
-    | Tconstr (path, args, _) ->
-      Some (if Path.same path Predef.path_int then
-         I64
-       else if Path.same path Predef.path_int64 then
-         I64
-       else if Path.same path Predef.path_int32 then
-         I32
-       else if Path.same path Predef.path_float then
-         Double
-       else if Path.same path Predef.path_bool then
-         Bool
-       else if Path.same path Predef.path_char then
-         Char
-       else if Path.same path Predef.path_bytes then
-         Value
-       else if Path.same path Predef.path_string then
-         Value
-       else
-         match Path.name path with
-         | "Lowcaml_stdlib.F32.t" -> Float
-         | "Lowcaml_stdlib.SIMD.__m128i" -> M128i
-         | "Lowcaml_stdlib.SIMD.__m256i" -> M256i
-         | "Lowcaml_stdlib.Void_ptr.t" -> Void_ptr
-         | "Lowcaml_stdlib.Const_void_ptr.t" -> Const_void_ptr
-         | "Lowcaml_stdlib.Uint64_t.t" -> U64
-         | "Lowcaml_stdlib.Int16_t.t" -> I16
-         | "Lowcaml_stdlib.Int8_t.t" -> I8
-         | "Stdlib__Bigarray.Array1.t" -> Value (* TODO: check 3rd type parameter is c_layout? *)
-         | "Lowcaml_stdlib.Mut.t" | "Lowcaml_stdlib.Ptr.t" ->
-           (match args with
-            | [x] when is_type_var x ->
-              Void_ptr
-            | [x] ->
-              (match map_type_with_unit ~where env x with
-               | Some ty -> Ptr ty
-               | None -> not_supported "unit Mut.t")
-            | _ -> failwithf "Expected 1 type parameter for Mut.t, but got %d in %a" (List.length args) Printtyp.type_expr ty
-           )
-         | "Lowcaml_stdlib.Const_ptr.t" ->
-           (match args with
-            | [x] when is_type_var x ->
-              Const_void_ptr
-            | [x] ->
-              (match map_type_with_unit ~where env x with
-               | Some ty -> Ptr (Const ty)
-               | None -> not_supported "unit Const_ptr.t")
-            | _ -> failwithf "Expected 1 type parameter for Mut.t, but got %d in %a" (List.length args) Printtyp.type_expr ty
-           )
-         | _ ->
-           not_supported "unknown type: %a in %s" Printtyp.type_expr ty where
-      )
-    | _ ->
-      not_supported "type expression: %a in %s" Printtyp.type_expr ty where
-
-  let map_type ~where env ty =
-    match map_type_with_unit ~where env ty with
-    | Some t -> t
-    | None -> not_supported "unit is not supported here: %s" where
-
-  (* TODO: merge with map_type *)
-  let handle_type ~where env ty =
-    let ty = Ctype.expand_head env ty in
-    match Types.get_desc ty with
-    | Tconstr (path, _, _) ->
-      (if Path.same path Predef.path_int then
-         "(int[@untagged])"
-       else if Path.same path Predef.path_int64 then
-         "(int64[@unboxed])"
-       else if Path.same path Predef.path_int32 then
-         "(int32[@unboxed])"
-       else if Path.same path Predef.path_float then
-         "(float[@unboxed])"
-       else if Path.same path Predef.path_bool then
-         "(int[@untagged])" (* mapped in OCaml stub *)
-       else if Path.same path Predef.path_char then
-         "(int[@untagged])" (* mapped in OCaml stub *)
-       else if Path.same path Predef.path_bytes then
-         "bytes"
-       else if Path.same path Predef.path_string then
-         "string"
-       else if Path.same path Predef.path_unit then
-         "unit"
-       else
-         match Path.name path with
-         | "Stdlib__Bigarray.Array1.t" -> "(_, _, Bigarray.c_layout) Bigarray.Array1.t" (* TODO: also map type parameters *)
-         | "Lowcaml_stdlib.SIMD.__m256i" -> not_supported "type __m256i in %s" where
-         | "Lowcaml_stdlib.Ptr.t" -> not_supported "type ptr in %s" where
-         | _ ->
-           not_supported "unknown type in function: %a in %s" Printtyp.type_expr ty where
-      )
-    | _ ->
-      not_supported "type expression: %a in %s" Printtyp.type_expr ty where
+  let ocaml_type_to_external_type ~where = function
+    | OCaml_type.Int -> "(int[@untagged])"
+    | Int64 -> "(int64[@unboxed])"
+    | Int32 -> "(int32[@unboxed])"
+    | Float -> "(float[@unboxed])"
+    | Bool | Char -> "(int[@untagged])" (* converted to int in OCaml stub *)
+    | Bytes -> "bytes"
+    | String -> "string"
+    | Unit -> "unit"
+    | Bigarray -> "(_, _, Bigarray.c_layout) Bigarray.Array1.t" (* TODO: also map type parameters *)
+    | F32 | U8 | U16
+    | U32 | U64 | I8
+    | I16 | M128i | M256i
+    | Void_ptr | Const_void_ptr
+    | Ptr _ | Const_ptr _
+    | Mut _ as t ->
+      not_supported "type: %s in %s" (OCaml_type.show t) where
+    | Type_variable _ as t ->
+      not_supported "type variable: %s in %s" (OCaml_type.show t) where
 
   let is_unit ty =
     match Types.get_desc ty with
@@ -452,11 +497,6 @@ module Lowcaml = struct
   let is_bool ty =
     match Types.get_desc ty with
     | Tconstr (path, [], _) when Path.same path Predef.path_bool -> true
-    | _ -> false
-
-  let is_char ty =
-    match Types.get_desc ty with
-    | Tconstr (path, [], _) when Path.same path Predef.path_char -> true
     | _ -> false
 
   let rec get_var_from_pat pat =
@@ -661,9 +701,8 @@ module Lowcaml = struct
       let ty = vb_pat.pat_type in
       let names', varname = Names.new_var names ~mut:true ?ident var in
       let ty =
-        match Types.get_desc (Ctype.expand_head body.exp_env ty) with
-        | Tconstr (path, [inner_ty], _) when Path.name path = "Lowcaml_stdlib.Mut.t" ->
-          map_type ~where:var body.exp_env inner_ty
+        match (OCaml_type.map ~where:var body.exp_env ty) with
+        | Mut t -> ocaml_type_to_ctype ~where:var t
         | _ -> failwithf "bad type assigned to Mut.t: %a" Printtyp.type_expr ty
       in
       Declaration (
@@ -678,7 +717,7 @@ module Lowcaml = struct
       let ty = binding.vb_pat.pat_type in
       let names', varname = Names.new_var names ?ident var in
       Declaration (
-        Const (map_type ~where:var body.exp_env ty),
+        Const (ocaml_type_to_ctype ~where:var (OCaml_type.map ~where:var body.exp_env ty)),
         varname,
         generate_simple_expression names binding.vb_expr
       )
@@ -752,22 +791,20 @@ module Lowcaml = struct
     let c, ml_funcs = List.split @@ List.map (fun item ->
         match item.str_desc with
         | Tstr_value (Nonrecursive, [value]) ->
+          let _ident, func_name = get_var_from_pat value.vb_pat in
+          log "Got function: %s" func_name;
+          let args, body = get_args value.vb_expr in
+          List.iter (fun (id, name, ty) -> log "Arg: %a %s %a" Ident.print id name Printtyp.type_expr ty) args;
+          let return_type = body.exp_type in
+          log "return type: %a" Printtyp.type_expr return_type;
+          if args = [] then failwith "TODO: Constant";
+          let args = List.map (fun (id, name, ty) -> id, name, OCaml_type.map ~where:name item.str_env ty) args in
+          let return_type = OCaml_type.map ~where:func_name item.str_env return_type in
           let c_fun =
-            let _ident, func_name = get_var_from_pat value.vb_pat in
-            log "Got function: %s" func_name;
-            let args, body = get_args value.vb_expr in
-            if args = [] then failwith "TODO: Constant";
-            List.iter (fun (id, name, ty) -> log "Arg: %a %s %a" Ident.print id name Printtyp.type_expr ty) args;
-            let return_type = body.exp_type in
-            log "return type: %a" Printtyp.type_expr return_type;
-            let return_type = map_type_with_unit ~where:func_name item.str_env return_type in
-            let rec remove_consts = function
-              | Const x -> remove_consts x
-              | x -> x
-            in
-            let return_type = Option.map remove_consts return_type in
+            let return_type = match return_type with Unit -> None | t -> Some (ocaml_type_to_ctype ~where:func_name t) in
+            assert (match return_type with Some Const _ -> false | _ -> true);
             let names, args = List.fold_left (fun (names, args) (ident, var, ty) ->
-                let cty = Const (Option.value ~default:Value (map_type_with_unit ~where:func_name item.str_env ty)) in
+                let cty = Const (ocaml_type_to_ctype ~where:var ty) in
                 let names, var = Names.new_var names ~ident var in
                 (names, (var, cty) :: args)
               ) (Names.empty, []) args
@@ -780,31 +817,27 @@ module Lowcaml = struct
               body = generate_body ~return:(return_type <> None) names body;
             }
           in
-          let _ident, func_name = get_var_from_pat value.vb_pat in
-          let args, body = get_args value.vb_expr in
-          if args = [] then failwith "TODO: Constant";
-          let return_ty = handle_type ~where:func_name item.str_env body.exp_type in
-          let arg_types = String.concat " -> " (List.map (fun (_id, name, ty) -> handle_type ~where:name item.str_env ty) args) in
+          let return_ty = ocaml_type_to_external_type ~where:func_name return_type in
+          let arg_types = String.concat " -> " (List.map (fun (_id, name, ty) -> ocaml_type_to_external_type ~where:name ty) args) in
           let external_decl =
             sprintf {|external %s : %s -> %s = "bytecode_not_supported_by_lowcaml" "%s" [@@noalloc]|} func_name arg_types return_ty func_name
           in
           let conversion_stub =
-            if List.exists (fun (_, _, ty) -> is_bool ty || is_char ty) args ||
-               is_char body.exp_type ||
-               is_bool body.exp_type
+            if List.exists (fun (_, _, ty) -> ty = OCaml_type.Char || ty = Bool) args ||
+               return_type = Char || return_type = Bool
             then
-              let arg_names = String.concat " " (List.map (fun (_id, name, _ty) -> name) args) in
-              let arg_names_mapped = String.concat " " (List.map (fun (_id, name, ty) ->
-                  if is_bool ty then sprintf "(Bool.to_int %s)" name
-                  else if is_char ty then sprintf "(Char.code %s)" name
-                  else name
+              let arg_names = String.concat " " (List.map (fun (_, name, _) -> name) args) in
+              let arg_names_mapped = String.concat " " (List.map (fun (_, name, ty) ->
+                  match ty with
+                  | OCaml_type.Bool -> sprintf "(Bool.to_int %s)" name
+                  | OCaml_type.Char -> sprintf "(Char.code %s)" name
+                  | _ -> name
                 ) args) in
               let call =
-                if is_char body.exp_type then
-                  sprintf "Char.chr (0xFF land %s %s)" func_name arg_names_mapped
-                else if is_bool body.exp_type then
-                  sprintf "0 <> %s %s" func_name arg_names_mapped
-                else sprintf "%s %s" func_name arg_names_mapped
+                match return_type with
+                | Char -> sprintf "Char.chr (0xFF land %s %s)" func_name arg_names_mapped
+                | Bool -> sprintf "0 <> %s %s" func_name arg_names_mapped
+                | _ -> sprintf "%s %s" func_name arg_names_mapped
               in
               sprintf "\nlet %s %s = %s" func_name arg_names call
             else
@@ -826,23 +859,20 @@ module Lowcaml = struct
           let args, return_type = get_args_from_ty val_desc.ctyp_type in
           List.iter (fun arg -> log "external arg: %a" Printtyp.type_expr arg) args;
           log "external return_type: %a" Printtyp.type_expr return_type;
-          if args = [] then failwith "TODO: Constant";
+          let args = List.map (OCaml_type.map ~where:func_name item.str_env) args in
+          let return_type = OCaml_type.map ~where:func_name item.str_env return_type in
           Prototype {
             name = create_identifer func_name;
             args =
               (match args with
-               | [t] when is_unit t -> []
-               | _ ->
-                 List.map (fun ty ->
-                     (* Option.value ~default:Value (map_type_with_unit ~where:item.str_env item.str_env ty) *)
-                     map_type ~where:func_name item.str_env ty
-                   ) args);
-            return_type = map_type_with_unit ~where:func_name item.str_env return_type;
+               | [Unit] -> []
+               | _ -> List.map (ocaml_type_to_ctype ~where:func_name) args);
+            return_type = (match return_type with Unit -> None | t -> Some (ocaml_type_to_ctype ~where:func_name t));
           },
           None
         | Tstr_primitive { val_name; _ } ->
           not_supported "primitive with more than one name: %s" val_name.txt
-        | Tstr_attribute { attr_name = { txt = "include" | "locaml.include"; _ };
+        | Tstr_attribute { attr_name = { txt = "include" | "lowcaml.include"; _ };
                            attr_payload = PStr [{ pstr_desc = Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (header, _, None)); _ }, _); _ }]; _ } ->
           (match String.get header 0, String.get header (String.length header - 1) with
            | '<', '>' -> Include header
@@ -937,7 +967,6 @@ let () =
     let result = C_ast.{ elements } in
     let result = if enable_simplify_pass then C_ast.Simplify.go result else result in
     let out = "// generated by lowcaml\n" ^ C_ast.Print.print result in
-    print_endline out;
     Out_channel.with_open_bin !c_file (fun c -> output_string c out);
     Out_channel.with_open_bin !ml_file (fun c -> output_string c ml)
   with
