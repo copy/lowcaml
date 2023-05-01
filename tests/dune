@@ -25,7 +25,7 @@
  (targets lstubs.ml cstubs.c)
  (deps test_lowcaml.ml)
  (action
-  (run lowcaml.exe -o-ml lstubs.ml -o-c cstubs.c -source test_lowcaml.ml)))
+  (run lowcaml.exe -o-ml lstubs.ml -o-c cstubs.c -i test_lowcaml.ml)))
 
 ; for merlin
 (library

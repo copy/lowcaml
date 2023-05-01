@@ -49,9 +49,9 @@ Currently, only OCaml 5.0 is supported.
 Usage
 -----
 
-Dune users can use this library by vendoring it in their project. Non-dune
-users can run `dune install` which will install `lowcaml.exe` in their current
-opam switch.
+Dune users can use this library by vendoring it in their project. Findlib users
+can run `dune install` which will install `lowcaml.exe` in their current opam
+switch.
 
 You will need a custom rule that invokes `lowcaml.exe` and a library with C
 stubs. In the following, `my_stubs_lowcaml.ml` is the input while `lstubs.ml` and

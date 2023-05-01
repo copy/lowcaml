@@ -40,4 +40,6 @@
    -3-26-27-32-48-58-60
    -bin-annot
    -color
-   always)))
+   always))
+ (strict
+  (flags :standard -w @68 -bin-annot -color always)))
