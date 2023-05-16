@@ -218,6 +218,7 @@ module Uint64_t : sig
   (** The [uint64_t] type *)
 
   external of_int : int -> t = "lowcaml_int_to_uint64_t"
+  external of_int64 : int64 -> t = "lowcaml_int_to_uint64_t"
 end
 
 external assert_ : bool -> unit = "assert"
@@ -227,12 +228,19 @@ external assert_ : bool -> unit = "assert"
 
 module SIMD : sig
   type __m128i
+  external _mm_set_epi8 : char -> char -> char -> char -> char -> char -> char -> char ->
+    char -> char -> char -> char -> char -> char -> char -> char -> __m128i = "_mm_set_epi8"
+  external _mm_set_epi32 : int32 -> int32 -> int32 -> int32 -> __m128i = "_mm_set_epi32"
   external _mm_set1_epi32 : int32 -> __m128i = "_mm_set1_epi32"
   external _mm_and_si128 : __m128i -> __m128i -> __m128i = "_mm_and_si128"
   external _mm_cmpeq_epi32 : __m128i -> __m128i -> __m128i = "_mm_cmpeq_epi32"
   external _mm_blendv_epi8 : __m128i -> __m128i -> __m128i -> __m128i = "_mm_blendv_epi8"
+  external _mm_add_epi64 : __m128i -> __m128i -> __m128i = "_mm_add_epi64"
   external _mm_storeu_si64 : Void_ptr.t -> __m128i -> unit = "_mm_storeu_si64"
   external _mm_storeu_si128 : __m128i Ptr.t -> __m128i -> unit = "_mm_storeu_si128"
+  external _mm_loadu_si128 : __m128i Const_ptr.t -> __m128i = "_mm_loadu_si128"
+  external _mm_extract_epi64 :  __m128i -> int32 -> int = "_mm_extract_epi64"
+  external _mm_extract_epi32 :  __m128i -> int32 -> int32 = "_mm_extract_epi32"
 
   type __m256i
   external _mm256_set1_epi8 : char -> __m256i = "_mm256_set1_epi8"
