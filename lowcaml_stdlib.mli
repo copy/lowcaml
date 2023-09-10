@@ -262,5 +262,8 @@ module SIMD : sig
 
   external _mm256_loadu_si256 : __m256i Const_ptr.t -> __m256i = "_mm256_loadu_si256"
 
+  type __m512i
+  type __mmask16
+
   (* external _mm256_storeu_epi8 : Ptr.t -> __m256i -> unit = "_mm256_storeu_epi8" *) (* AVX512 *)
 end

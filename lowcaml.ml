@@ -74,7 +74,8 @@ module C_ast = struct
     | U64 | U32 | U16 | U8
     | Bool | Char
     | Float | Double
-    | M128i | M256i
+    | M128i | M256i | M512i
+    | Mmask16
     | Value
     | Void_ptr | Const_void_ptr
     | Ptr of ty
@@ -147,6 +148,8 @@ module C_ast = struct
       | Double -> pr buf "double"
       | M128i -> pr buf "__m128i"
       | M256i -> pr buf "__m256i"
+      | M512i -> pr buf "__m512i"
+      | Mmask16 -> pr buf "__mmask16"
       | Value -> pr buf "value"
       | Void_ptr -> pr buf "void*"
       | Const_void_ptr -> pr buf "const void*"
@@ -361,6 +364,8 @@ module OCaml_type = struct
     | I16
     | M128i
     | M256i
+    | M512i
+    | Mmask16
     | Void_ptr
     | Const_void_ptr
     | Ptr of t
@@ -385,6 +390,8 @@ module OCaml_type = struct
        | "Lowcaml_stdlib.F32.t" -> F32
        | "Lowcaml_stdlib.SIMD.__m128i" -> M128i
        | "Lowcaml_stdlib.SIMD.__m256i" -> M256i
+       | "Lowcaml_stdlib.SIMD.__m512i" -> M512i
+       | "Lowcaml_stdlib.SIMD.__mmask16" -> Mmask16
        | "Lowcaml_stdlib.Void_ptr.t" -> Void_ptr
        | "Lowcaml_stdlib.Const_void_ptr.t" -> Const_void_ptr
        | "Lowcaml_stdlib.Uint8_t.t" -> U8
@@ -426,6 +433,8 @@ module OCaml_type = struct
     | I16 -> "Lowcaml_stdlib.Int16_t.t"
     | M128i -> "Lowcaml_stdlib.SIMD.__m128i"
     | M256i -> "Lowcaml_stdlib.SIMD.__m256i"
+    | M512i -> "Lowcaml_stdlib.SIMD.__m512i"
+    | Mmask16 -> "Lowcaml_stdlib.SIMD.__mmask16"
     | Void_ptr -> "Lowcaml_stdlib.Void_ptr.t"
     | Const_void_ptr -> "Lowcaml_stdlib.Const_void_ptr.t"
     | Ptr t -> show t ^ " Lowcaml_stdlib.Ptr.t"
@@ -459,6 +468,8 @@ module Lowcaml = struct
     | I16 -> I16
     | M128i -> M128i
     | M256i -> M256i
+    | M512i -> M512i
+    | Mmask16 -> Mmask16
     | Void_ptr -> Void_ptr
     | Const_void_ptr -> Const_void_ptr
     | Ptr Type_variable _ | Mut Type_variable _ -> Void_ptr
@@ -480,7 +491,9 @@ module Lowcaml = struct
     | Bigarray -> "(_, _, Bigarray.c_layout) Bigarray.Array1.t" (* TODO: also map type parameters *)
     | F32 | U8 | U16
     | U32 | U64 | I8
-    | I16 | M128i | M256i
+    | I16
+    | M128i | M256i | M512i
+    | Mmask16
     | Void_ptr | Const_void_ptr
     | Ptr _ | Const_ptr _
     | Mut _ as t ->
