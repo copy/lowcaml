@@ -856,7 +856,7 @@ module Lowcaml = struct
               ""
           in
           c_fun, Some (external_decl ^ conversion_stub)
-        | Tstr_primitive { val_id; val_name; val_desc; val_prim = [func_name]; _ } ->
+        | Tstr_primitive { val_id; val_name; val_desc; val_prim = func_name :: _; _ } ->
           log "external: %a %s %s" Ident.print val_id val_name.txt func_name;
           let rec get_args_from_ty ty =
             match Types.get_desc ty with
@@ -883,7 +883,7 @@ module Lowcaml = struct
           },
           None
         | Tstr_primitive { val_name; _ } ->
-          not_supported "primitive with more than one name: %s" val_name.txt
+          not_supported "primitive with more than two names: %s" val_name.txt
         | Tstr_attribute { attr_name = { txt = "include" | "lowcaml.include"; _ };
                            attr_payload = PStr [{ pstr_desc = Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (header, _, None)); _ }, _); _ }]; _ } ->
           (match String.get header 0, String.get header (String.length header - 1) with
