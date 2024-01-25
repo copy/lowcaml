@@ -49,7 +49,7 @@ Currently, only OCaml 5.0 is supported.
 Usage
 -----
 
-Dune users can use this library by vendoring it in their project. Findlib users
+Dune users can use this library by vendoring it in their project. opam users
 can run `dune install` which will install `lowcaml.exe` in their current opam
 switch.
 
@@ -217,11 +217,11 @@ Related projects
   deprecated"](https://okmij.org/ftp/meta-programming/mutable-var.html), a
   major inspiration for this project. Lowcaml's `Mut.t` is uses this
   compilation scheme.
-- [ocaml-ctypes](https://github.com/yallop/ocaml-ctypes), While lowcaml can be
+- [ocaml-ctypes](https://github.com/yallop/ocaml-ctypes), while lowcaml can be
   used to write some bindings to C libraries, its primary goal is writing SIMD
   code. ocaml-ctypes is a more complete and stable project for writing
   bindings.
-- [KaRaMeL](https://github.com/FStarLang/karamel), an fstar-to-C compiler. More
-  low-level than lowcaml, with a focus on correctness proves.
-- [OCaml inline assembly](https://github.com/ocaml/ocaml/pull/162), a (reject)
-  pull request to the OCaml with support for inline assembly.
+- [KaRaMeL](https://github.com/FStarLang/karamel), an F*-to-C compiler. More
+  low-level than lowcaml, with a focus on correctness proofs.
+- [OCaml inline assembly](https://github.com/ocaml/ocaml/pull/162), a
+  (rejected) pull request to the OCaml with support for inline assembly.

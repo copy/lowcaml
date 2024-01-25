@@ -18,6 +18,7 @@
      - un-nest if-else chains
      - preserve comments
      - preserve number literals
+     - group includes together
    - bounds checks
    - check whether int fits into OCaml int before returning it (likely requires stubs)
    - complete stdlib
@@ -37,6 +38,9 @@
    - lowcaml libraries (install mli+h?)
      - convert lowcaml_stdlib to library
    - order of side effects (e.g. in parameters)?
+   - track dependencies of headers, remove unused header includes
+   - include ocaml-style error in Not_supported
+   - portable vector instructions? (http://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html)
 
    - things to rework
      - the pointer types
@@ -51,10 +55,15 @@
      - bigstringaf (or other) stubs
      - add two float bigarrays (like owl)
      - bitops (popcount, bsr, bsf)
+     - hardware aes (for rng/hash)
 *)
 
-let log fmt = Format.eprintf (fmt ^^ "@.")
-let warn fmt = Format.eprintf ("Warning: " ^^ fmt ^^ "@.")
+let logging = ref false
+let log fmt =
+  if !logging
+  then Format.kfprintf (fun f -> Format.pp_print_newline f ()) Format.err_formatter fmt
+  else Format.ikfprintf (fun _ -> ()) Format.err_formatter fmt
+let print fmt = Format.eprintf (fmt ^^ "@.")
 let failwithf fmt = Format.kasprintf failwith fmt
 let sprintf = Printf.sprintf
 
@@ -610,7 +619,7 @@ module Lowcaml = struct
       let ptr, value = args2 name args in
       Op2 ("=", Deref ptr, value)
     | "lowcaml_mut_create" ->
-      not_supported "Mut.t is not supported here"
+      not_supported "Mut.t is not allowed here"
     | "%identity" ->
       args1 name args
     | "%equal" -> let lhs, rhs = args2 name args in Op2 ("==", lhs, rhs)
@@ -775,13 +784,13 @@ module Lowcaml = struct
     | Texp_construct (_, _, _) ->
       [Return (generate_simple_expression names body)]
     | Texp_assert _ ->
-      failwith "TODO: assert"
+      not_supported "TODO: assert"
     | Texp_apply _ | Texp_constant _ | Texp_ident _ when return ->
       [Return (generate_simple_expression names body)]
     | Texp_apply _ ->
       [Expression (generate_simple_expression names body)]
     | Texp_constant _ | Texp_ident _ ->
-      warn "meaningless value in function body: %a" print_expr body;
+      print "Warning: meaningless value in function body: %a" print_expr body;
       [Expression (generate_simple_expression names body)]
     | Texp_match ({ exp_type; _ } as e1, [{ c_lhs = { pat_desc = Tpat_value p; _ }; c_guard = None; c_rhs = e2}], Total) when is_unit exp_type ->
       (* let () = ... in ... *)
@@ -809,7 +818,7 @@ module Lowcaml = struct
           List.iter (fun (id, name, ty) -> log "Arg: %a %s %a" Ident.print id name Printtyp.type_expr ty) args;
           let return_type = body.exp_type in
           log "return type: %a" Printtyp.type_expr return_type;
-          if args = [] then failwith "TODO: Constant";
+          if args = [] then not_supported "TODO: Constant";
           let args = List.map (fun (id, name, ty) -> id, name, OCaml_type.map ~where:name item.str_env ty) args in
           let return_type = OCaml_type.map ~where:func_name item.str_env return_type in
           let c_fun =
@@ -892,7 +901,7 @@ module Lowcaml = struct
            | _ -> Include (sprintf "%S" header)),
           None
         | _ ->
-          not_supported "not supported: %a" print_structure_item item
+          not_supported "%a" print_structure_item item
       ) typed.str_items
     in
     let builtin_includes = [
@@ -978,6 +987,7 @@ let () =
     "-o-ml", opt_arg ml_file, "output .ml file";
     "-cmi", opt_arg cmi, "lowcaml stdlib cmi (default uses built-in)";
     "-skip-simplify", Arg.Set skip_simplify, "skip simplify pass (default false)";
+    "-v", Arg.Set logging, "verbose logging";
   ]
   in
   let usage_message = "Usage: lowcaml.exe [-i file] [-o-ml file] [-o-c file]" in
@@ -996,8 +1006,8 @@ let () =
     Option.iter (fun f -> Util.write_file f ml) !ml_file
   with
     | Typecore.Error _ | Env.Error _ | Syntaxerr.Error _ as e ->
-      log "--- Lowcaml error ---@\n%a" Location.report_exception e;
+      print "%a" Location.report_exception e;
       exit 1
     | Not_supported msg ->
-      log "--- not supported ---@\n%s" msg;
+      print "--- not supported ---@\n%s" msg;
       exit 1
